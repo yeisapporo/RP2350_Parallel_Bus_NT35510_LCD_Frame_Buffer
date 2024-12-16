@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "../../../PyxelProject/PyPrac/test"
+		},
+		{
+			"name": "test",
+			"path": "."
+		}
+	],
+	"settings": {
+		"git.ignoreLimitWarning": true
+	}
+}
