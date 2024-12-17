@@ -16,13 +16,15 @@ static const uint16_t parallel_out_program_instructions[] = {
             //     .wrap_target
     0x80a0, //  0: pull   block
     0x6008, //  1: out    pins, 8
+    0xe02b, //  1: set    pins, 0 [1] ; GP11 を LOW に (立ち下げ)
+    0xe12b, //  3: set    pins, 1 [1] ; GP11 を HIGH に (立ち上げ)
             //     .wrap
 };
 
 #if !PICO_NO_HARDWARE
 static const struct pio_program parallel_out_program = {
     .instructions = parallel_out_program_instructions,
-    .length = 2,
+    .length = 4,
     .origin = -1,
     .pio_version = parallel_out_pio_version,
 #if PICO_PIO_VERSION > 0
