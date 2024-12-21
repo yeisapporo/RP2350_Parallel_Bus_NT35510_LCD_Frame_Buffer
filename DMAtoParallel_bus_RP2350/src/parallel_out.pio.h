@@ -9,25 +9,39 @@
 // ------------ //
 
 #define parallel_out_wrap_target 0
-#define parallel_out_wrap 13
+#define parallel_out_wrap 12
 #define parallel_out_pio_version 0
 
 static const uint16_t parallel_out_program_instructions[] = {
             //     .wrap_target
+#if 1
     0x80a0, //  0: pull   block
-    0xe200, //  2: set    pins, 0                [1]
-    0x6208, //  1: out    pins, 8
-    0xe201, //  3: set    pins, 1                [1]
-    0xe200, //  2: set    pins, 0                [1]
-    0x6208, //  1: out    pins, 8
-    0xe201, //  3: set    pins, 1                [1]
-    0xe200, //  2: set    pins, 0                [1]
-    0x6208, //  1: out    pins, 8
-    0xe201, //  3: set    pins, 1                [1]
-    0xe200, //  2: set    pins, 0                [1]
-    0x6208, //  1: out    pins, 8
-    0xe201, //  3: set    pins, 1                [1]
+    0xe100, //  2: set    pins, 0                [1]
+    0x6008, //  1: out    pins, 8
+    0xe101, //  3: set    pins, 1                [1]
+    0xe100, //  2: set    pins, 0                [1]
+    0x6008, //  1: out    pins, 8
+    0xe101, //  3: set    pins, 1                [1]
+    0xe100, //  2: set    pins, 0                [1]
+    0x6008, //  1: out    pins, 8
+    0xe101, //  3: set    pins, 1                [1]
+    0xe100, //  2: set    pins, 0                [1]
+    0x6008, //  1: out    pins, 8
+    0xe101, //  3: set    pins, 1                [1]
+#else
+            //     .wrap_target
+    0x80a0, //  0: pull   block
+    0xe044, //  1: set    y, 4
+    0xe100, //  2: set    pins, 0                [1]
+    0xa127, //  3: mov    x, osr                 [1]
+    0xa101, //  4: mov    pins, x                [1]
+    0xe101, //  5: set    pins, 1                [1]
+    0xe100, //  6: set    pins, 0                [1]
+    0x6008, //  7: out    pins, 8
+    0xe101, //  8: set    pins, 1                [1]
+    0x0082, //  9: jmp    y--, 2
             //     .wrap
+#endif
 };
 
 #if !PICO_NO_HARDWARE

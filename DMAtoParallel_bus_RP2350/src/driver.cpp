@@ -6,6 +6,8 @@
 #include "hardware/dma.h"
 #include "parallel_out.pio.h"
 
+#include "churu.h"
+
 #define TFT_D0 0       // GPIO0〜7をデータバスに使用
 #define TFT_CS 12
 #define TFT_RS 8          // GPIO8をRSピンに使用
@@ -38,47 +40,51 @@ void setup_gpio(void){
 // NT35510 command requires a word address
 void setWordAddress(uint16_t addr) {
     digitalWrite(TFT_RS, LOW);  // command mode
+   sleep_us(100);
     digitalWrite(TFT_RD, HIGH);
+   sleep_us(100);
     digitalWrite(TFT_WR, LOW);
     gpio_clr_mask(0xff);
     gpio_set_mask(0xff & (addr >> 8));    // put upper byte
-    sleep_us(500);
+   sleep_us(100);
     digitalWrite(TFT_WR, HIGH);
-    sleep_us(500);
+   sleep_us(100);
     digitalWrite(TFT_WR, LOW);
     gpio_clr_mask(0xff);
     gpio_set_mask(0xff & addr);         // put lower byte
-    sleep_us(500);
+   sleep_us(100);
     digitalWrite(TFT_WR, HIGH);
-    sleep_us(500);
+   sleep_us(100);
 }
 
 void setByteData(uint8_t data) {
     digitalWrite(TFT_RS, HIGH); // data mode
+   sleep_us(100);
     digitalWrite(TFT_WR, LOW);
     gpio_clr_mask(0xff);
     gpio_set_mask(data);
-    sleep_us(500);
+   sleep_us(100);
     digitalWrite(TFT_WR, HIGH);
-    sleep_us(500);
+   sleep_us(100);
 }
 
 // for some types of frame buffer.
 void setWordData(uint16_t data) {
     digitalWrite(TFT_RS, HIGH); // data mode
+   sleep_us(100);
     digitalWrite(TFT_WR, LOW);
     gpio_clr_mask(0xff);
     gpio_set_mask(0xff & (data >> 8));
-    sleep_us(500);
+   sleep_us(100);
     digitalWrite(TFT_WR, HIGH);
-    sleep_us(500);
+   sleep_us(100);
 
     digitalWrite(TFT_WR, LOW);
     gpio_clr_mask(0xff);
     gpio_set_mask(0xff & data );
-    sleep_us(500);
+   sleep_us(100);
     digitalWrite(TFT_WR, HIGH);
-    sleep_us(500);
+   sleep_us(100);
 }
 
 void sendCommand(uint16_t command_addr, std::initializer_list<uint8_t> data = {}) {
@@ -103,11 +109,13 @@ void init_LCD(void) {
 
     // hardware reset
     digitalWrite(TFT_RESET, LOW);
-    delay(250);
+    delay(500);
     digitalWrite(TFT_RESET, HIGH);
-    delay(250);
+    delay(500);
 
     // send initializing commands.
+    sendCommand(0x0100);
+    sleep_us(2500); 
     sendCommand(0xf000, {0x55, 0xaa, 0x52, 0x08, 0x01});    // enable Page1
     sendCommand(0xb600, {0x34, 0x34, 0x34});
     sendCommand(0xb000, {0x0d, 0x0d, 0x0d});    // AVDD Set AVDD 5.2V
@@ -164,11 +172,12 @@ void init_LCD(void) {
     sendCommand(0xbd00, {0x01,0x84,0x07,0x31,0x00,0x01});   // Display Timing:
     
     sendCommand(0xff00, {0xaa,0x55,0x25,0x01}); // enable Page??
-    sendCommand(0x3400);    // tearing effect line ON
+    sendCommand(0x3500);    // tearing effect line ON
     sendCommand(0x3a00, {0x55});    // 16bit
     sendCommand(0x3600, {0b00100000});    // display direction
+    //sendCommand(0x3600, {0b00000010});    // display direction
     sendCommand(0x2a00, {0, 0});  //
-    sendCommand(0x2a02, {0x01, 0x8f});  //
+    sendCommand(0x2a02, {0x01, 0xb7});  // 18f
     sendCommand(0x2b00, {0, 0});  //
     sendCommand(0x2b02, {0x03, 0x1F});  //
     sendCommand(0x1100);    // Sleep out
@@ -178,6 +187,7 @@ void init_LCD(void) {
 
     // start image transfer (column and row are reset to start positions.)             
     sendCommand(0x2c00);
+    
 }
 
 void setup_pio(PIO pio, uint sm, uint offset) {
@@ -202,7 +212,6 @@ void setup_pio(PIO pio, uint sm, uint offset) {
 
     // ステートマシンを初期化
     pio_sm_init(pio, sm, offset, &config);
-
     // ステートマシンを有効化
     pio_sm_set_enabled(pio, sm, true);
 }
@@ -224,7 +233,7 @@ void setup_dma(PIO pio, uint sm) {
             &dma_config[0],         // 設定
             &pio->txf[sm],  // 転送先
             framebuffer,       // 転送元
-            DATA_SIZE * 1,    // 転送回数(バッファが半分だから)
+            DATA_SIZE * 1,    // 転送回数
             false           // 自動開始しない
         );
 
@@ -260,7 +269,7 @@ void setup()
     setup_debug_serial_out();
     
     aa = rp2040.getPSRAMSize();
-    DBG(">PSRAM size:%d\n", aa);
+    DBG("PSRAM size:%d\n", aa);
     //stdio_init_all();
     setup_gpio();
 
@@ -284,9 +293,20 @@ void setup()
         }
     }
 
-
     // 最初のDMAチャンネルを起動
-    dma_channel_start(dma_channel[0]);
+    sleep_us(5000);
+    while(dma_hw->ch[dma_channel[0]].al1_ctrl & DMA_CH0_CTRL_TRIG_BUSY_BITS) {
+        __asm("nop");
+    }
+    while(dma_hw->ch[dma_channel[1]].al1_ctrl & DMA_CH0_CTRL_TRIG_BUSY_BITS) {
+        __asm("nop");
+    }
+    dma_channel_start(dma_channel[1]);
+    while(dma_hw->ch[dma_channel[0]].al1_ctrl & DMA_CH0_CTRL_TRIG_BUSY_BITS) {
+        __asm("nop");
+    }
+
+    //dma_channel_set_read_addr(dma_channel[0], framebuffer, true);
  
     //dma_start_channel_mask((1u << dma_channel[0]));
     //delay(200);
@@ -313,25 +333,35 @@ void loop()
         sio_hw->gpio_clr = (1ul << 25) | 1;
     }
 
-#if 1
-    static uint8_t pxl = 0;
+#if 0
     // フレームバッファ内容変更
-    for(int y = 0; y < 250; y += 1) {
+    for(int y = 250; y < 500; y += 1) {
         for(int x = 50; x < 190; x += 1) {
             framebuffer[y * 240 + x] = random(65536);
         }
     }
-    for(int y = 250; y < 500; y += 1) {
+    for(int y = 150; y < 400; y += 1) {
         for(int x = 0; x < 240; x += 1) {
             framebuffer[y * 240 + x] = 0;
         }
     }
+#if 0
     for(int y = 500; y < 800; y += 1) {
         for(int x = 0; x < 240; x += 1) {
             framebuffer[y * 240 + x] = 65535;
         }
     }
-    pxl++;
-#endif    
-    //sleep_ms(5); // 適当に遅延を入れてみる
+#endif
+#endif
+    static int w = 0;
+    for(int i = 0; i < 240 * 800 * 2 - w * 480; i += 2) {
+        framebuffer[i / 2 + w * 240] = (uint16_t)(churu[i] << 8) + churu[i + 1];
+
+    }
+    for(int i = 0; i < (240 * w * 2); i += 2) {
+        framebuffer[i / 2] = (uint16_t)(churu[i + (800 - w) * 480] << 8) + churu[i + (800 - w) * 480 + 1];
+    }
+    w += 2; if(w >= 800) {w = 0;}
+
+    //sleep_ms(50); // 適当に遅延を入れてみる
 }
