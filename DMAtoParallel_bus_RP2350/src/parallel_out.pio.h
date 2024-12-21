@@ -9,13 +9,14 @@
 // ------------ //
 
 #define parallel_out_wrap_target 0
-#define parallel_out_wrap 12
+#define parallel_out_wrap 13
 #define parallel_out_pio_version 0
 
 static const uint16_t parallel_out_program_instructions[] = {
             //     .wrap_target
 #if 1
     0x80a0, //  0: pull   block
+
     0xe100, //  2: set    pins, 0                [1]
     0x6008, //  1: out    pins, 8
     0xe101, //  3: set    pins, 1                [1]

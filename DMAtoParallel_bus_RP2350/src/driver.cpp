@@ -40,51 +40,51 @@ void setup_gpio(void){
 // NT35510 command requires a word address
 void setWordAddress(uint16_t addr) {
     digitalWrite(TFT_RS, LOW);  // command mode
-   sleep_us(100);
+   sleep_us(1000);
     digitalWrite(TFT_RD, HIGH);
-   sleep_us(100);
+   sleep_us(1000);
+    //gpio_clr_mask(0xff);
+    gpio_put_masked(0xff, 0xff & (addr >> 8));    // put upper byte
     digitalWrite(TFT_WR, LOW);
-    gpio_clr_mask(0xff);
-    gpio_set_mask(0xff & (addr >> 8));    // put upper byte
-   sleep_us(100);
+   sleep_us(1000);
     digitalWrite(TFT_WR, HIGH);
-   sleep_us(100);
+   sleep_us(1000);
+    //gpio_clr_mask(0xff);
+    gpio_put_masked(0xff, 0xff & addr);         // put lower byte
     digitalWrite(TFT_WR, LOW);
-    gpio_clr_mask(0xff);
-    gpio_set_mask(0xff & addr);         // put lower byte
-   sleep_us(100);
+   sleep_us(1000);
     digitalWrite(TFT_WR, HIGH);
-   sleep_us(100);
+   sleep_us(1000);
 }
 
 void setByteData(uint8_t data) {
     digitalWrite(TFT_RS, HIGH); // data mode
-   sleep_us(100);
+   sleep_us(1000);
+    //gpio_clr_mask(0xff);
+    gpio_put_masked(0xff, data);
     digitalWrite(TFT_WR, LOW);
-    gpio_clr_mask(0xff);
-    gpio_set_mask(data);
-   sleep_us(100);
+   sleep_us(1000);
     digitalWrite(TFT_WR, HIGH);
-   sleep_us(100);
+   sleep_us(1000);
 }
 
 // for some types of frame buffer.
 void setWordData(uint16_t data) {
     digitalWrite(TFT_RS, HIGH); // data mode
-   sleep_us(100);
+   sleep_us(1000);
+    //gpio_clr_mask(0xff);
+    gpio_put_masked(0xff, 0xff & (data >> 8));
     digitalWrite(TFT_WR, LOW);
-    gpio_clr_mask(0xff);
-    gpio_set_mask(0xff & (data >> 8));
-   sleep_us(100);
+   sleep_us(1000);
     digitalWrite(TFT_WR, HIGH);
-   sleep_us(100);
+   sleep_us(1000);
 
+    //gpio_clr_mask(0xff);
+    gpio_put_masked(0xff, 0xff & data );
     digitalWrite(TFT_WR, LOW);
-    gpio_clr_mask(0xff);
-    gpio_set_mask(0xff & data );
-   sleep_us(100);
+   sleep_us(1000);
     digitalWrite(TFT_WR, HIGH);
-   sleep_us(100);
+   sleep_us(1000);
 }
 
 void sendCommand(uint16_t command_addr, std::initializer_list<uint8_t> data = {}) {
@@ -163,8 +163,8 @@ void init_LCD(void) {
     
     sendCommand(0xf000, {0x55,0xAA,0x52,0x08,0x00});    // Enable Page0
     sendCommand(0xb000, {0x08,0x05,0x02,0x05,0x02});    // RGB I/F Setting
-    sendCommand(0xb600, {0x08});    // SDT 
-    sendCommand(0xb500, {0x50});    // 480*800
+    sendCommand(0xb600, {0x08});    // SDT  source hold time
+    sendCommand(0xb500, {0x50});    // 480*800 CGM?
     sendCommand(0xb700, {0x00,0x00});   // Gate EQ:
     sendCommand(0xb800, {0x01,0x05,0x05,0x05}); // Source EQ:
     sendCommand(0xbc00, {0x00,0x00,0x00});  // Inversion: Column inversion (NVT)
@@ -172,14 +172,13 @@ void init_LCD(void) {
     sendCommand(0xbd00, {0x01,0x84,0x07,0x31,0x00,0x01});   // Display Timing:
     
     sendCommand(0xff00, {0xaa,0x55,0x25,0x01}); // enable Page??
+    sendCommand(0x2b00, {0, 0, 0xff, 0xff});  // row address
+    sendCommand(0x2a00, {0, 0, 0xff, 0xff});  // column address
+    //sendCommand(0x3000, {0, 0, 0x03, 0x1F});
     sendCommand(0x3500);    // tearing effect line ON
+    //sendCommand(0x3600, {0b0010011});    // MADCTL display direction
+    //sendCommand(0x3900);
     sendCommand(0x3a00, {0x55});    // 16bit
-    sendCommand(0x3600, {0b00100000});    // display direction
-    //sendCommand(0x3600, {0b00000010});    // display direction
-    sendCommand(0x2a00, {0, 0});  //
-    sendCommand(0x2a02, {0x01, 0xb7});  // 18f
-    sendCommand(0x2b00, {0, 0});  //
-    sendCommand(0x2b02, {0x03, 0x1F});  //
     sendCommand(0x1100);    // Sleep out
     delay(200);
     sendCommand(0x2900);    // Display on
