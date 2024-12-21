@@ -1,5 +1,6 @@
 # RP2350_Parallel_bus_Transfer_with_DMA (supports NT35510)
 This project is a DMA transfer of frame buffer contents to the GPIOs (parallel busing) of the RP2040/RP2350 in an Arduino-Pico environment. It does not require DMA restart processing by interrupts or polling and was created as a prototype for LCD drivers.
+Frame buffer (240 * 800 pixels) supported.
 
 DMA chaining:.
         Designed to use two DMA channels, one transferring data and the other reconfiguring the transfer source.
