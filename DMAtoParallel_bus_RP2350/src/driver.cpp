@@ -345,8 +345,28 @@ void loop()
         framebuffer[i / 2] = (uint16_t)(churu[i + 1] *256) + churu[i];
     }
 #else
-    memcpy((void *)framebuffer, (const void *)churu, sizeof(churu));
+    //memcpy((void *)framebuffer, (const void *)churu, sizeof(churu));
 #endif
 
+    static int w = 0;
+#if defined(YOKO_GAMEN)
+    for(int i = 0; i < 480 * 400 * 2 - w * 800; i += 2) {
+        framebuffer[i / 2 + w * 400] = (uint16_t)(churu[i]) + (uint16_t)(churu[i + 1]  << 8);
+
+    }
+    for(int i = 0; i < (400 * w * 2); i += 2) {
+        framebuffer[i / 2] = (uint16_t)(churu[i + (480 - w) * 800]) + (uint16_t)(churu[i + (480 - w) * 800 + 1] << 8);
+    }
+    w += 2; if(w >= 480) {w = 0;}
+#elif defined(TATE_GAMEN)
+    for(int i = 0; i < 240 * 800 * 2 - w * 480; i += 2) {
+        framebuffer[i / 2 + w * 240] = (uint16_t)(churu[i]) + (uint16_t)(churu[i + 1]  << 8);
+
+    }
+    for(int i = 0; i < (240 * w * 2); i += 2) {
+        framebuffer[i / 2] = (uint16_t)(churu[i + (800 - w) * 480]) + (uint16_t)(churu[i + (800 - w) * 480 + 1] << 8);
+    }
+    w += 2; if(w >= 800) {w = 0;}
+#endif
     //sleep_ms(10); // 適当に遅延を入れてみる
 }
