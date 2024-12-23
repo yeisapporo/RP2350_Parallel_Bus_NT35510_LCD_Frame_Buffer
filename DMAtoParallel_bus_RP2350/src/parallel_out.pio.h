@@ -9,46 +9,38 @@
 // ------------ //
 
 #define parallel_out_wrap_target 0
-#define parallel_out_wrap 13
+#define parallel_out_wrap 14
 #define parallel_out_pio_version 0
 
 static const uint16_t parallel_out_program_instructions[] = {
             //     .wrap_target
-#if 1
-    0x80a0, //  0: pull   block
+    0x80e0, //  0: pull   ifempty block
+    0xa027, //  1: mov    x, osr
+    0x6008, //  2: out    pins, 8
+    0xe000, //  3: set    pins, 0                [1]
+    0xe001, //  4: set    pins, 1                [1]
+    0x6008, //  5: out    pins, 8
+    0xe000, //  6: set    pins, 0                [1]
+    0xe001, //  7: set    pins, 1                [1]
 
-    0xe100, //  2: set    pins, 0                [1]
-    0x6008, //  1: out    pins, 8
-    0xe101, //  3: set    pins, 1                [1]
-    0xe100, //  2: set    pins, 0                [1]
-    0x6008, //  1: out    pins, 8
-    0xe101, //  3: set    pins, 1                [1]
-    0xe100, //  2: set    pins, 0                [1]
-    0x6008, //  1: out    pins, 8
-    0xe101, //  3: set    pins, 1                [1]
-    0xe100, //  2: set    pins, 0                [1]
-    0x6008, //  1: out    pins, 8
-    0xe101, //  3: set    pins, 1                [1]
-#else
-            //     .wrap_target
-    0x80a0, //  0: pull   block
-    0xe044, //  1: set    y, 4
-    0xe100, //  2: set    pins, 0                [1]
-    0xa127, //  3: mov    x, osr                 [1]
-    0xa101, //  4: mov    pins, x                [1]
-    0xe101, //  5: set    pins, 1                [1]
-    0xe100, //  6: set    pins, 0                [1]
-    0x6008, //  7: out    pins, 8
-    0xe101, //  8: set    pins, 1                [1]
-    0x0082, //  9: jmp    y--, 2
+
+
+    0xa0e1, //  8: mov    osr, x
+    0x6008, //  9: out    pins, 8
+    0xe000, // 10: set    pins, 0                [1]
+    0xe001, // 11: set    pins, 1                [1]
+    0x6008, // 12: out    pins, 8
+    0xe000, // 13: set    pins, 0                [1]
+    0xe001, // 14: set    pins, 1                [1]
             //     .wrap
-#endif
+
+
 };
 
 #if !PICO_NO_HARDWARE
 static const struct pio_program parallel_out_program = {
     .instructions = parallel_out_program_instructions,
-    .length = 13,
+    .length = 15,
     .origin = -1,
     .pio_version = parallel_out_pio_version,
 #if PICO_PIO_VERSION > 0

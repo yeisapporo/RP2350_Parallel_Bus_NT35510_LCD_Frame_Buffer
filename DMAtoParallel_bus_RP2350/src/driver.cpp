@@ -6,15 +6,13 @@
 #include "hardware/dma.h"
 #include "parallel_out.pio.h"
 
-#include "churu.h"
-
 #define TFT_D0 0       // GPIO0〜7をデータバスに使用
 #define TFT_CS 12
 #define TFT_RS 8          // GPIO8をRSピンに使用
 #define TFT_RD 9
 #define TFT_RESET 10
 #define TFT_WR 11         // ★★順番変えた方がよい
-#define DATA_SIZE 240*800   // 画面サイズ
+#define DATA_SIZE 400*480   // 画面サイズ
 
 __attribute__((aligned(4))) uint16_t framebuffer[DATA_SIZE];// ピクセルデータを格納
 volatile __attribute__((aligned(4))) uint16_t *startaddr = framebuffer;
@@ -108,14 +106,19 @@ void init_LCD(void) {
     digitalWrite(TFT_RD, HIGH);
 
     // hardware reset
+    delay(200);
     digitalWrite(TFT_RESET, LOW);
-    delay(500);
+    delay(200);
     digitalWrite(TFT_RESET, HIGH);
-    delay(500);
+    delay(200);
 
     // send initializing commands.
     sendCommand(0x0100);
-    sleep_us(2500); 
+    delay(200);
+    sendCommand(0x1100);    // Sleep out
+    delay(200);
+    sendCommand(0x2900);    // Display on
+    delay(200);
     sendCommand(0xf000, {0x55, 0xaa, 0x52, 0x08, 0x01});    // enable Page1
     sendCommand(0xb600, {0x34, 0x34, 0x34});
     sendCommand(0xb000, {0x0d, 0x0d, 0x0d});    // AVDD Set AVDD 5.2V
@@ -172,18 +175,31 @@ void init_LCD(void) {
     sendCommand(0xbd00, {0x01,0x84,0x07,0x31,0x00,0x01});   // Display Timing:
     
     sendCommand(0xff00, {0xaa,0x55,0x25,0x01}); // enable Page??
-    sendCommand(0x2b00, {0, 0, 0xff, 0xff});  // row address
-    sendCommand(0x2a00, {0, 0, 0xff, 0xff});  // column address
-    //sendCommand(0x3000, {0, 0, 0x03, 0x1F});
-    sendCommand(0x3500);    // tearing effect line ON
-    //sendCommand(0x3600, {0b0010011});    // MADCTL display direction
-    //sendCommand(0x3900);
-    sendCommand(0x3a00, {0x55});    // 16bit
-    sendCommand(0x1100);    // Sleep out
-    delay(200);
-    sendCommand(0x2900);    // Display on
-    delay(200);
 
+    // The following sections must not change the order of the commands.
+    // FROM HERE:
+#if 1
+    #define YOKO_GAMEN
+    sendCommand(0x3600, {0b00100001});    // MADCTL display direction
+    sendCommand(0x3a00, {0b01010101});    // 16bit-16bit (two commands are required)
+    sendCommand(0x2a00, {0, 0, 0x03, 0x1f});  // long side width: 800
+    sendCommand(0x2b00, {0, 0, 0x02, 0x57});  // short side width: 600 ? for 480
+    sendCommand(0x3000, {0, 0, 0x03, 0x1F});
+    sendCommand(0x3500);    // tearing effect line ON
+    sendCommand(0x3a00, {0b01010101});    // 16bit-16bit (two commands are required)
+#else
+    #define TATE_GAMEN
+    sendCommand(0x3600, {0b00000011});    // MADCTL display direction
+    sendCommand(0x3a00, {0b01010101});    // 16bit-16bit (two commands are required)
+    sendCommand(0x2a00, {0, 0, 0x01, 0xdf});  // long side width: 800
+    sendCommand(0x2b00, {0, 0, 0x03, 0x1f});  // short side width: 480
+    sendCommand(0x3000, {0, 0, 0x03, 0x1F});
+    sendCommand(0x3500);    // tearing effect line ON
+    sendCommand(0x3a00, {0b01010101});    // 16bit-16bit (two commands are required)
+#endif
+    // :UP TO HERE.
+
+    delay(150);
     // start image transfer (column and row are reset to start positions.)             
     sendCommand(0x2c00);
     
@@ -204,8 +220,9 @@ void setup_pio(PIO pio, uint sm, uint offset) {
     // PIOの初期設定
     pio_sm_config config = parallel_out_program_get_default_config(offset);
     sm_config_set_out_pins(&config, TFT_D0, 8); // データバスの出力ピン設定
-    sm_config_set_set_pins(&config, TFT_WR, 1);      // GP11を `SET` 命令で操作対象に追加
+    sm_config_set_set_pins(&config, TFT_WR, 1);      // GP11をSET命令で操作対象
     sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_TX);
+    sm_config_set_out_shift(&config, false, false, 16);
 
     sm_config_set_clkdiv(&config, 1.0f); // クロック分周値
 
@@ -230,9 +247,9 @@ void setup_dma(PIO pio, uint sm) {
         dma_channel_configure(
             dma_channel[0],  // チャネル番号
             &dma_config[0],         // 設定
-            &pio->txf[sm],  // 転送先
-            framebuffer,       // 転送元
-            DATA_SIZE * 1,    // 転送回数
+            (void *)&pio->txf[sm],  // 転送先
+            (void *)framebuffer,       // 転送元
+            DATA_SIZE,    // 転送回数
             false           // 自動開始しない
         );
 
@@ -264,16 +281,14 @@ void setup_debug_serial_out(void) {
 void setup()
 {
     volatile int aa;
-
     setup_debug_serial_out();
     
     aa = rp2040.getPSRAMSize();
     DBG("PSRAM size:%d\n", aa);
-    //stdio_init_all();
-    setup_gpio();
 
     // NT35510初期化
-    init_LCD();
+    setup_gpio();
+    init_LCD();    
     
     // PIOとDMAの初期化
     PIO pio = pio0;
@@ -285,15 +300,8 @@ void setup()
     setup_pio(pio, sm, offset);
     setup_dma(pio, sm);
 
-    // フレームバッファ内容変更
-    for(int y = 0; y < 240; y += 1) {
-        for(int x = 0; x < 800; x += 1) {
-            framebuffer[y * 800 + x] = 0;
-        }
-    }
-
     // 最初のDMAチャンネルを起動
-    sleep_us(5000);
+    sleep_us(2000);
     while(dma_hw->ch[dma_channel[0]].al1_ctrl & DMA_CH0_CTRL_TRIG_BUSY_BITS) {
         __asm("nop");
     }
@@ -305,62 +313,40 @@ void setup()
         __asm("nop");
     }
 
-    //dma_channel_set_read_addr(dma_channel[0], framebuffer, true);
- 
-    //dma_start_channel_mask((1u << dma_channel[0]));
-    //delay(200);
-    volatile bool flg = dma_hw->ch[dma_channel[0]].al1_ctrl & DMA_CH0_CTRL_TRIG_BUSY_BITS;
     //dma_channel_wait_for_finish_blocking(dma_channel);
-    printf("%d",(const char*)flg);
 }
+
+#if defined(YOKO_GAMEN)
+    #include "churu_yoko-gamen.h"
+#elif defined(TATE_GAMEN)
+    #include "churu_tate-gamen.h"
+#endif
 
 void loop()
 {
     static int a;
-    bool flg = dma_hw->ch[dma_channel[0]].al1_ctrl & DMA_CH0_CTRL_TRIG_BUSY_BITS;
-    if(flg == false) {
-        //dma_channel_set_read_addr(dma_channel[0], framebuffer, true);
-    }
+    //bool flg = dma_hw->ch[dma_channel[0]].al1_ctrl & DMA_CH0_CTRL_TRIG_BUSY_BITS;
+    //if(flg == false) {
+    //    dma_channel_set_read_addr(dma_channel[0], framebuffer, true);
+    //}
 
     if(++a == 2) {
         a = 0;
     }
-    //digitalWrite(PIN_LED, a);
+
     if(a) {
         sio_hw->gpio_set = (1ul << 25) | 1;
     } else {
         sio_hw->gpio_clr = (1ul << 25) | 1;
     }
 
-#if 0
-    // フレームバッファ内容変更
-    for(int y = 250; y < 500; y += 1) {
-        for(int x = 50; x < 190; x += 1) {
-            framebuffer[y * 240 + x] = random(65536);
-        }
+# if 0
+    for(int i = 0; i < 800 * 480; i += 2) {
+        framebuffer[i / 2] = (uint16_t)(churu[i + 1] *256) + churu[i];
     }
-    for(int y = 150; y < 400; y += 1) {
-        for(int x = 0; x < 240; x += 1) {
-            framebuffer[y * 240 + x] = 0;
-        }
-    }
-#if 0
-    for(int y = 500; y < 800; y += 1) {
-        for(int x = 0; x < 240; x += 1) {
-            framebuffer[y * 240 + x] = 65535;
-        }
-    }
+#else
+    memcpy((void *)framebuffer, (const void *)churu, sizeof(churu));
 #endif
-#endif
-    static int w = 0;
-    for(int i = 0; i < 240 * 800 * 2 - w * 480; i += 2) {
-        framebuffer[i / 2 + w * 240] = (uint16_t)(churu[i] << 8) + churu[i + 1];
 
-    }
-    for(int i = 0; i < (240 * w * 2); i += 2) {
-        framebuffer[i / 2] = (uint16_t)(churu[i + (800 - w) * 480] << 8) + churu[i + (800 - w) * 480 + 1];
-    }
-    w += 2; if(w >= 800) {w = 0;}
-
-    //sleep_ms(50); // 適当に遅延を入れてみる
+    //sleep_ms(10); // 適当に遅延を入れてみる
 }
