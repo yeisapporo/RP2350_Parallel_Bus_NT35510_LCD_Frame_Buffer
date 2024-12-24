@@ -7,7 +7,7 @@ DMA chaining:.
         Designed to use two DMA channels, one transferring data and the other reconfiguring the transfer source.
         Configure the coordination between the DMA channels using channel_config_set_chain_to() to achieve an infinite loop-like transfer.
 
-PSRAM as a frame buffer of 800x480 (full screen):
+PSRAM as a frame buffer of 800x480 (full screen):.
         If you have boards with PSRAM, this driver program can use the PSRAM as a frame buffer.
 
 Transfer source reconfiguration:.
