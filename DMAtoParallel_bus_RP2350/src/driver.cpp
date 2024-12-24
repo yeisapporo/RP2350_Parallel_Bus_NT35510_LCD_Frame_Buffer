@@ -1,6 +1,10 @@
+///////////////////////////////////////////////////////////////////////////////////
+// This programme is an 800x480 LCD driver (parallel bus) controlled by NT35510.
+// Do not define the following #define on boards without PSRAM.
+///////////////////////////////////////////////////////////////////////////////////
+#define PIMORINI_PICO_PLUS_2
+
 #include <Arduino.h>
-
-
 #include "pico/stdlib.h"
 #include "hardware/pio.h"
 #include "hardware/dma.h"
@@ -8,13 +12,20 @@
 
 #define TFT_D0 0       // GPIO0〜7をデータバスに使用
 #define TFT_CS 12
-#define TFT_RS 8          // GPIO8をRSピンに使用
+#define TFT_RS 8
 #define TFT_RD 9
 #define TFT_RESET 10
-#define TFT_WR 11         // ★★順番変えた方がよい
-#define DATA_SIZE 400*480   // 画面サイズ
-
-__attribute__((aligned(4))) uint16_t framebuffer[DATA_SIZE];// ピクセルデータを格納
+#define TFT_WR 11
+#if defined(PIMORINI_PICO_PLUS_2)
+#define DATA_SIZE 800*480   // 画面サイズ
+#else
+#define DATA_SIZE 400*480   // 画面サイズ(landscape) or 800*240 (portrait)
+#endif
+#if defined(PIMORINI_PICO_PLUS_2)
+__attribute__((aligned(4))) uint16_t framebuffer[DATA_SIZE] PSRAM; // ピクセルデータを格納
+#else
+__attribute__((aligned(4))) uint16_t framebuffer[DATA_SIZE];
+#endif
 volatile __attribute__((aligned(4))) uint16_t *startaddr = framebuffer;
 volatile uint dma_channel[2];
 
@@ -32,57 +43,52 @@ void setup_gpio(void){
         gpio_set_dir(tft_pins[i], GPIO_OUT);
     }
 
-    pinMode(PIN_LED, OUTPUT);
+    pinMode(PIN_LED, OUTPUT); 
 }
 
 // NT35510 command requires a word address
 void setWordAddress(uint16_t addr) {
     digitalWrite(TFT_RS, LOW);  // command mode
-   sleep_us(1000);
+    sleep_us(1000);
     digitalWrite(TFT_RD, HIGH);
-   sleep_us(1000);
-    //gpio_clr_mask(0xff);
+    sleep_us(1000);
     gpio_put_masked(0xff, 0xff & (addr >> 8));    // put upper byte
     digitalWrite(TFT_WR, LOW);
-   sleep_us(1000);
+    sleep_us(1000);
     digitalWrite(TFT_WR, HIGH);
-   sleep_us(1000);
-    //gpio_clr_mask(0xff);
+    sleep_us(1000);
     gpio_put_masked(0xff, 0xff & addr);         // put lower byte
     digitalWrite(TFT_WR, LOW);
-   sleep_us(1000);
+    sleep_us(1000);
     digitalWrite(TFT_WR, HIGH);
-   sleep_us(1000);
+    sleep_us(1000);
 }
 
 void setByteData(uint8_t data) {
     digitalWrite(TFT_RS, HIGH); // data mode
-   sleep_us(1000);
-    //gpio_clr_mask(0xff);
+    sleep_us(1000);
     gpio_put_masked(0xff, data);
     digitalWrite(TFT_WR, LOW);
-   sleep_us(1000);
+    sleep_us(1000);
     digitalWrite(TFT_WR, HIGH);
-   sleep_us(1000);
+    sleep_us(1000);
 }
 
 // for some types of frame buffer.
 void setWordData(uint16_t data) {
     digitalWrite(TFT_RS, HIGH); // data mode
-   sleep_us(1000);
-    //gpio_clr_mask(0xff);
+    sleep_us(1000);
     gpio_put_masked(0xff, 0xff & (data >> 8));
     digitalWrite(TFT_WR, LOW);
-   sleep_us(1000);
+    sleep_us(1000);
     digitalWrite(TFT_WR, HIGH);
-   sleep_us(1000);
+    sleep_us(1000);
 
-    //gpio_clr_mask(0xff);
     gpio_put_masked(0xff, 0xff & data );
     digitalWrite(TFT_WR, LOW);
-   sleep_us(1000);
+    sleep_us(1000);
     digitalWrite(TFT_WR, HIGH);
-   sleep_us(1000);
+    sleep_us(1000);
 }
 
 void sendCommand(uint16_t command_addr, std::initializer_list<uint8_t> data = {}) {
@@ -222,8 +228,10 @@ void setup_pio(PIO pio, uint sm, uint offset) {
     sm_config_set_out_pins(&config, TFT_D0, 8); // データバスの出力ピン設定
     sm_config_set_set_pins(&config, TFT_WR, 1);      // GP11をSET命令で操作対象
     sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_TX);
+    #if defined(PIMORINI_PICO_PLUS_2)
+    #else
     sm_config_set_out_shift(&config, false, false, 16);
-
+    #endif
     sm_config_set_clkdiv(&config, 1.0f); // クロック分周値
 
     // ステートマシンを初期化
@@ -232,11 +240,16 @@ void setup_pio(PIO pio, uint sm, uint offset) {
     pio_sm_set_enabled(pio, sm, true);
 }
 
+dma_channel_config dma_config[2];
 void setup_dma(PIO pio, uint sm) {
-    dma_channel_config dma_config[2];
+//    dma_channel_config dma_config[2];
         /* データ転送DMA */
         dma_config[0] = dma_channel_get_default_config(dma_channel[0]);
+#if defined(PIMORINI_PICO_PLUS_2)
+        channel_config_set_transfer_data_size(&dma_config[0], DMA_SIZE_32);
+#else
         channel_config_set_transfer_data_size(&dma_config[0], DMA_SIZE_16);
+#endif
         channel_config_set_read_increment(&dma_config[0], true);
         channel_config_set_write_increment(&dma_config[0], false);
         // PIOのDREQ設定
@@ -249,7 +262,11 @@ void setup_dma(PIO pio, uint sm) {
             &dma_config[0],         // 設定
             (void *)&pio->txf[sm],  // 転送先
             (void *)framebuffer,       // 転送元
-            DATA_SIZE,    // 転送回数
+#if defined(PIMORINI_PICO_PLUS_2)
+            DATA_SIZE / 2,    // 転送回数
+#else
+            DATA_SIZE,
+#endif
             false           // 自動開始しない
         );
 
@@ -285,7 +302,8 @@ void setup()
     
     aa = rp2040.getPSRAMSize();
     DBG("PSRAM size:%d\n", aa);
-
+    // frame buffer確保
+    //framebuffer  = (uint16_t *)pmalloc(DATA_SIZE);
     // NT35510初期化
     setup_gpio();
     init_LCD();    
@@ -314,6 +332,19 @@ void setup()
     }
 
     //dma_channel_wait_for_finish_blocking(dma_channel);
+    
+#if defined(PIMORINI_PICO_PLUS_2)
+    for(int y = 0; y < 480; y++) {
+        for(int x = 0; x < 800; x++) {
+            framebuffer[y * 800 + x] = x + y;
+        }
+    }
+    for(int y = 0; y < 256; y++) {
+        for(int x = 0; x < 256; x++) {
+            framebuffer[y * 800 + x] = 0;
+        }
+    }
+#endif
 }
 
 #if defined(YOKO_GAMEN)
@@ -340,33 +371,29 @@ void loop()
         sio_hw->gpio_clr = (1ul << 25) | 1;
     }
 
-# if 0
-    for(int i = 0; i < 800 * 480; i += 2) {
-        framebuffer[i / 2] = (uint16_t)(churu[i + 1] *256) + churu[i];
-    }
-#else
-    //memcpy((void *)framebuffer, (const void *)churu, sizeof(churu));
-#endif
-
     static int w = 0;
 #if defined(YOKO_GAMEN)
-    for(int i = 0; i < 480 * 400 * 2 - w * 800; i += 2) {
-        framebuffer[i / 2 + w * 400] = (uint16_t)(churu[i]) + (uint16_t)(churu[i + 1]  << 8);
-
+    #if defined(PIMORINI_PICO_PLUS_2)
+    memcpy((void *)(framebuffer + w * 400), (const void *)(churu), 480 * 400 * 2 - w * 800);
+    memcpy((void *)(framebuffer), (const void *)(churu + (480 - w) * 800), 400 * w * 2);
+    for(int y = 0; y < 256; y++) {
+        memset((void *)&framebuffer[y * 800], y, 256 * 2);
     }
-    for(int i = 0; i < (400 * w * 2); i += 2) {
-        framebuffer[i / 2] = (uint16_t)(churu[i + (480 - w) * 800]) + (uint16_t)(churu[i + (480 - w) * 800 + 1] << 8);
-    }
+    #else
+    memcpy((void *)(framebuffer + w * 400), (const void *)(churu), 480 * 400 * 2 - w * 800);
+    memcpy((void *)(framebuffer), (const void *)(churu + (480 - w) * 800), 400 * w * 2);
+    #endif
     w += 2; if(w >= 480) {w = 0;}
+
 #elif defined(TATE_GAMEN)
     for(int i = 0; i < 240 * 800 * 2 - w * 480; i += 2) {
         framebuffer[i / 2 + w * 240] = (uint16_t)(churu[i]) + (uint16_t)(churu[i + 1]  << 8);
-
     }
     for(int i = 0; i < (240 * w * 2); i += 2) {
         framebuffer[i / 2] = (uint16_t)(churu[i + (800 - w) * 480]) + (uint16_t)(churu[i + (800 - w) * 480 + 1] << 8);
     }
     w += 2; if(w >= 800) {w = 0;}
 #endif
+
     //sleep_ms(10); // 適当に遅延を入れてみる
 }
