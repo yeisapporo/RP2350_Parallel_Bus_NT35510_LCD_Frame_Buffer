@@ -19,6 +19,7 @@
 static const uint16_t parallel_out_program_instructions[] = {
 #if defined(PIMORINI_PICO_PLUS_2)
             //     .wrap_target
+#if 1 // 16bit little-endian x 2をひっくり返して出力する。
     0x80a0, //  0: pull   block
     0xa027, //  1: mov    x, osr
     0x6068, //  2: out    null, 8
@@ -39,6 +40,22 @@ static const uint16_t parallel_out_program_instructions[] = {
     0x6008, // 17: out    pins, 8
     0xe000, // 18: set    pins, 0
     0xe001, // 19: set    pins, 1
+#else
+    0x80a0, //  0: pull   block
+    0x6108, //  3: out    pins, 8
+    0xe100, //  4: set    pins, 0
+    0xe101, //  5: set    pins, 1
+    0x6108, //  3: out    pins, 8
+    0xe100, //  4: set    pins, 0
+    0xe101, //  5: set    pins, 1
+    0x6108, //  3: out    pins, 8
+    0xe100, //  4: set    pins, 0
+    0xe101, //  5: set    pins, 1
+    0x6108, //  3: out    pins, 8
+    0xe100, //  4: set    pins, 0
+    0xe101, //  5: set    pins, 1
+#endif
+
             //     .wrap
 #else
             //     .wrap_target

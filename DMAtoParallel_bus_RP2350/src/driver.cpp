@@ -22,12 +22,17 @@
 #define DATA_SIZE 400*480   // 画面サイズ(landscape) or 800*240 (portrait)
 #endif
 #if defined(PIMORINI_PICO_PLUS_2)
-__attribute__((aligned(4))) uint16_t framebuffer[DATA_SIZE] PSRAM; // ピクセルデータを格納
+__attribute__((aligned(4))) uint16_t framebuffer[2][DATA_SIZE] PSRAM; // ピクセルデータを格納
 #else
-__attribute__((aligned(4))) uint16_t framebuffer[DATA_SIZE];
+__attribute__((aligned(4))) uint16_t framebuffer[1][DATA_SIZE];
 #endif
-volatile __attribute__((aligned(4))) uint16_t *startaddr = framebuffer;
-volatile uint dma_channel[2];
+volatile __attribute__((aligned(4))) uint16_t *transferbuffer = framebuffer[0];
+#if defined(PIMORINI_PICO_PLUS_2)
+volatile __attribute__((aligned(4))) uint16_t *drawingbuffer = framebuffer[1];
+#else
+volatile __attribute__((aligned(4))) uint16_t *drawingbuffer = framebuffer[0];
+#endif
+volatile uint dma_channel[4];
 
 void setup_gpio(void){
     for (int i = TFT_D0; i < TFT_D0 + 8; i++) {
@@ -49,46 +54,46 @@ void setup_gpio(void){
 // NT35510 command requires a word address
 void setWordAddress(uint16_t addr) {
     digitalWrite(TFT_RS, LOW);  // command mode
-    sleep_us(1000);
+    sleep_us(500);
     digitalWrite(TFT_RD, HIGH);
-    sleep_us(1000);
+    sleep_us(500);
     gpio_put_masked(0xff, 0xff & (addr >> 8));    // put upper byte
     digitalWrite(TFT_WR, LOW);
-    sleep_us(1000);
+    sleep_us(500);
     digitalWrite(TFT_WR, HIGH);
-    sleep_us(1000);
+    sleep_us(500);
     gpio_put_masked(0xff, 0xff & addr);         // put lower byte
     digitalWrite(TFT_WR, LOW);
-    sleep_us(1000);
+    sleep_us(500);
     digitalWrite(TFT_WR, HIGH);
-    sleep_us(1000);
+    sleep_us(500);
 }
 
 void setByteData(uint8_t data) {
     digitalWrite(TFT_RS, HIGH); // data mode
-    sleep_us(1000);
+    sleep_us(500);
     gpio_put_masked(0xff, data);
     digitalWrite(TFT_WR, LOW);
-    sleep_us(1000);
+    sleep_us(500);
     digitalWrite(TFT_WR, HIGH);
-    sleep_us(1000);
+    sleep_us(500);
 }
 
 // for some types of frame buffer.
 void setWordData(uint16_t data) {
     digitalWrite(TFT_RS, HIGH); // data mode
-    sleep_us(1000);
+    sleep_us(500);
     gpio_put_masked(0xff, 0xff & (data >> 8));
     digitalWrite(TFT_WR, LOW);
-    sleep_us(1000);
+    sleep_us(500);
     digitalWrite(TFT_WR, HIGH);
-    sleep_us(1000);
+    sleep_us(500);
 
     gpio_put_masked(0xff, 0xff & data );
     digitalWrite(TFT_WR, LOW);
-    sleep_us(1000);
+    sleep_us(500);
     digitalWrite(TFT_WR, HIGH);
-    sleep_us(1000);
+    sleep_us(500);
 }
 
 void sendCommand(uint16_t command_addr, std::initializer_list<uint8_t> data = {}) {
@@ -112,19 +117,19 @@ void init_LCD(void) {
     digitalWrite(TFT_RD, HIGH);
 
     // hardware reset
-    delay(200);
+    delay(150);
     digitalWrite(TFT_RESET, LOW);
-    delay(200);
+    delay(150);
     digitalWrite(TFT_RESET, HIGH);
-    delay(200);
+    delay(150);
 
     // send initializing commands.
     sendCommand(0x0100);
-    delay(200);
+    delay(150);
     sendCommand(0x1100);    // Sleep out
-    delay(200);
+    delay(150);
     sendCommand(0x2900);    // Display on
-    delay(200);
+    delay(150);
     sendCommand(0xf000, {0x55, 0xaa, 0x52, 0x08, 0x01});    // enable Page1
     sendCommand(0xb600, {0x34, 0x34, 0x34});
     sendCommand(0xb000, {0x0d, 0x0d, 0x0d});    // AVDD Set AVDD 5.2V
@@ -240,9 +245,8 @@ void setup_pio(PIO pio, uint sm, uint offset) {
     pio_sm_set_enabled(pio, sm, true);
 }
 
-dma_channel_config dma_config[2];
+dma_channel_config dma_config[4];
 void setup_dma(PIO pio, uint sm) {
-//    dma_channel_config dma_config[2];
         /* データ転送DMA */
         dma_config[0] = dma_channel_get_default_config(dma_channel[0]);
 #if defined(PIMORINI_PICO_PLUS_2)
@@ -261,7 +265,7 @@ void setup_dma(PIO pio, uint sm) {
             dma_channel[0],  // チャネル番号
             &dma_config[0],         // 設定
             (void *)&pio->txf[sm],  // 転送先
-            (void *)framebuffer,       // 転送元
+            (void *)transferbuffer,       // 転送元
 #if defined(PIMORINI_PICO_PLUS_2)
             DATA_SIZE / 2,    // 転送回数
 #else
@@ -270,7 +274,7 @@ void setup_dma(PIO pio, uint sm) {
             false           // 自動開始しない
         );
 
-        /* 転送元再設定DMA */
+        /* 転送元再設定DMA 転送完了時*/
         dma_config[1] = dma_channel_get_default_config(dma_channel[1]);
         channel_config_set_transfer_data_size(&dma_config[1], DMA_SIZE_32);
         channel_config_set_read_increment(&dma_config[1], false);
@@ -281,7 +285,7 @@ void setup_dma(PIO pio, uint sm) {
             dma_channel[1],  // チャネル番号
             &dma_config[1],         // 設定
             &dma_hw->ch[dma_channel[0]].al1_read_addr,  // 転送先
-            &startaddr,       // 転送元
+            &transferbuffer,       // 転送元
             1,    // 転送回数
             false           // 自動開始しない
         );
@@ -295,17 +299,52 @@ void setup_debug_serial_out(void) {
     Serial1.begin(9600);
 }
 
+void initframebuffers(void) {
+    memset((void *)transferbuffer, 0, sizeof(framebuffer));
+    memset((void *)drawingbuffer, 12345, sizeof(framebuffer));
+}
+
+#include "churu_yoko-gamen.h"
+#include "churu_tate-gamen.h"
+#if defined(PIMORINI_PICO_PLUS_2)
+#include "churu_full.h"
+#include "image004.h"
+#endif
+
+// API
+uint16_t _color = 0;
+uint16_t _screen_width = 800;
+uint16_t _screen_height = 480;
+
+int pset(uint16_t x, uint16_t y, uint16_t color) {
+    if(0 <= x && x <= _screen_width && 0 <= y && y <= _screen_height) {
+        drawingbuffer[y * _screen_width + x] = color;
+        return 0;
+    } else {
+        return -1;
+    }
+}
+
+int cls(uint16_t color) {
+    for(int y = 0; y < _screen_height; y++) {
+        for(int x = 0; x < _screen_width; x++) {
+            pset(x, y, color);
+        }
+    }
+    return 0;
+}
+
 void setup()
 {
-    volatile int aa;
+    volatile int psram_size;
     setup_debug_serial_out();
     
-    aa = rp2040.getPSRAMSize();
-    DBG("PSRAM size:%d\n", aa);
-    // frame buffer確保
+    psram_size = rp2040.getPSRAMSize();
+    DBG("PSRAM size:%d\n", psram_size);
     //framebuffer  = (uint16_t *)pmalloc(DATA_SIZE);
-    // NT35510初期化
+
     setup_gpio();
+    // NT35510初期化
     init_LCD();    
     
     // PIOとDMAの初期化
@@ -319,47 +358,30 @@ void setup()
     setup_dma(pio, sm);
 
     // 最初のDMAチャンネルを起動
+    initframebuffers();
     sleep_us(2000);
-    while(dma_hw->ch[dma_channel[0]].al1_ctrl & DMA_CH0_CTRL_TRIG_BUSY_BITS) {
-        __asm("nop");
-    }
-    while(dma_hw->ch[dma_channel[1]].al1_ctrl & DMA_CH0_CTRL_TRIG_BUSY_BITS) {
-        __asm("nop");
-    }
-    dma_channel_start(dma_channel[1]);
-    while(dma_hw->ch[dma_channel[0]].al1_ctrl & DMA_CH0_CTRL_TRIG_BUSY_BITS) {
-        __asm("nop");
-    }
+    //while(dma_hw->ch[dma_channel[0]].al1_ctrl & DMA_CH0_CTRL_TRIG_BUSY_BITS) {
+    //    __asm("nop");
+    //}
+    dma_channel_wait_for_finish_blocking(dma_channel[1]);
 
-    //dma_channel_wait_for_finish_blocking(dma_channel);
+    dma_channel_start(dma_channel[0]);
     
-#if defined(PIMORINI_PICO_PLUS_2)
-    for(int y = 0; y < 480; y++) {
-        for(int x = 0; x < 800; x++) {
-            framebuffer[y * 800 + x] = x + y;
-        }
-    }
-    for(int y = 0; y < 256; y++) {
-        for(int x = 0; x < 256; x++) {
-            framebuffer[y * 800 + x] = 0;
-        }
-    }
-#endif
 }
 
-#if defined(YOKO_GAMEN)
-    #include "churu_yoko-gamen.h"
-#elif defined(TATE_GAMEN)
-    #include "churu_tate-gamen.h"
-#endif
+void swapbuffer(void) {
+    volatile uint16_t *tmp;
+    //uint32_t addr = dma_hw->ch[dma_channel[0]].al1_read_addr;
+    tmp = drawingbuffer;
+    drawingbuffer = transferbuffer;
+    transferbuffer = tmp;
+
+    return;
+}
 
 void loop()
 {
     static int a;
-    //bool flg = dma_hw->ch[dma_channel[0]].al1_ctrl & DMA_CH0_CTRL_TRIG_BUSY_BITS;
-    //if(flg == false) {
-    //    dma_channel_set_read_addr(dma_channel[0], framebuffer, true);
-    //}
 
     if(++a == 2) {
         a = 0;
@@ -371,29 +393,42 @@ void loop()
         sio_hw->gpio_clr = (1ul << 25) | 1;
     }
 
-    static int w = 0;
+#if 1 // 画面テスト0
+    static int w = 480;
 #if defined(YOKO_GAMEN)
     #if defined(PIMORINI_PICO_PLUS_2)
-    memcpy((void *)(framebuffer + w * 400), (const void *)(churu), 480 * 400 * 2 - w * 800);
-    memcpy((void *)(framebuffer), (const void *)(churu + (480 - w) * 800), 400 * w * 2);
-    for(int y = 0; y < 256; y++) {
-        memset((void *)&framebuffer[y * 800], y, 256 * 2);
-    }
+    //for(int i = 0; i < DATA_SIZE; i++) {
+    //    drawingbuffer[i] = churu_full[i * 2] + churu_full[i * 2 + 1] * 256;
+    //}
+#if 0
+    memcpy((void *)&drawingbuffer[0], (const void *)&churu_full[_screen_width * (_screen_height - w) * 2], _screen_width * w * 2);
+    memcpy((void *)&drawingbuffer[800 * w], (const void *)&churu_full[0], _screen_width * (_screen_height - w) * 2);
+#else
+    memcpy((void *)&drawingbuffer[0], (const void *)&image004[_screen_width * (1352 - w) * 2], _screen_width * _screen_height * 2);
+
+#endif
+    //cls(31 << 11 | 0 << 5 | 31);
+
+
+    w += 8; if(w >= 1352) {w = 0;}
     #else
-    memcpy((void *)(framebuffer + w * 400), (const void *)(churu), 480 * 400 * 2 - w * 800);
-    memcpy((void *)(framebuffer), (const void *)(churu + (480 - w) * 800), 400 * w * 2);
+    memcpy((void *)(framebuffer[0] + w * 400), (const void *)(churu), 480 * 400 * 2 - w * 800);
+    memcpy((void *)(framebuffer[0]), (const void *)(churu + (480 - w) * 800), 400 * w * 2);
+    w += 4; if(w >= 480) {w = 0;}
     #endif
-    w += 2; if(w >= 480) {w = 0;}
 
 #elif defined(TATE_GAMEN)
     for(int i = 0; i < 240 * 800 * 2 - w * 480; i += 2) {
-        framebuffer[i / 2 + w * 240] = (uint16_t)(churu[i]) + (uint16_t)(churu[i + 1]  << 8);
+        framebuffer[0][i / 2 + w * 240] = (uint16_t)(churu2[i]) + (uint16_t)(churu2[i + 1]  << 8);
     }
     for(int i = 0; i < (240 * w * 2); i += 2) {
-        framebuffer[i / 2] = (uint16_t)(churu[i + (800 - w) * 480]) + (uint16_t)(churu[i + (800 - w) * 480 + 1] << 8);
+        framebuffer[0][i / 2] = (uint16_t)(churu2[i + (800 - w) * 480]) + (uint16_t)(churu2[i + (800 - w) * 480 + 1] << 8);
     }
     w += 2; if(w >= 800) {w = 0;}
 #endif
+#endif
 
-    //sleep_ms(10); // 適当に遅延を入れてみる
+    swapbuffer();
+    
+    //sleep_us(1000); // 適当に遅延を入れてみる
 }
