@@ -247,7 +247,7 @@ void setup_pio(PIO pio, uint sm, uint offset) {
 
 dma_channel_config dma_config[4];
 void setup_dma(PIO pio, uint sm) {
-        /* データ転送DMA */
+        /* データ転送DMA (to LCD) */
         dma_config[0] = dma_channel_get_default_config(dma_channel[0]);
 #if defined(PIMORINI_PICO_PLUS_2)
         channel_config_set_transfer_data_size(&dma_config[0], DMA_SIZE_32);
@@ -290,6 +290,38 @@ void setup_dma(PIO pio, uint sm) {
             false           // 自動開始しない
         );
 
+#if 1
+        /* データ転送DMA (to frame buffer) */
+        dma_config[2] = dma_channel_get_default_config(dma_channel[2]);
+        channel_config_set_transfer_data_size(&dma_config[2], DMA_SIZE_32);
+        channel_config_set_read_increment(&dma_config[2], true);
+        channel_config_set_write_increment(&dma_config[2], true);
+        dma_channel_set_config(dma_channel[2], &dma_config[2], false);
+        dma_channel_configure(
+            dma_channel[2],  // チャネル番号
+            &dma_config[2],         // 設定
+            (void *)drawingbuffer,  // 転送先
+            (void *)transferbuffer,       // 転送元
+            DATA_SIZE / 2,    // 転送回数
+            false           // 自動開始しない
+        );
+#endif
+#if 1
+        /* データ転送DMA (to frame buffer) */
+        dma_config[3] = dma_channel_get_default_config(dma_channel[3]);
+        channel_config_set_transfer_data_size(&dma_config[3], DMA_SIZE_32);
+        channel_config_set_read_increment(&dma_config[3], true);
+        channel_config_set_write_increment(&dma_config[3], true);
+        dma_channel_set_config(dma_channel[3], &dma_config[3], false);
+        dma_channel_configure(
+            dma_channel[3],  // チャネル番号
+            &dma_config[3],         // 設定
+            (void *)drawingbuffer,  // 転送先
+            (void *)transferbuffer,       // 転送元
+            DATA_SIZE / 2,    // 転送回数
+            false           // 自動開始しない
+        );
+#endif
 }
 
 void setup_debug_serial_out(void) {
@@ -316,13 +348,25 @@ uint16_t _color = 0;
 uint16_t _screen_width = 800;
 uint16_t _screen_height = 480;
 
-int pset(uint16_t x, uint16_t y, uint16_t color) {
+#define SMALLER(x,y) ((x)<=(y)?(x):(y))
+#define LARGER(x,y) ((x)>=(y)?(x):(y)) 
+
+int pset(int16_t x, int16_t y, uint16_t color) {
     if(0 <= x && x <= _screen_width && 0 <= y && y <= _screen_height) {
         drawingbuffer[y * _screen_width + x] = color;
         return 0;
     } else {
         return -1;
     }
+}
+
+int clsfast(uint16_t value) {
+    //memset((void *)drawingbuffer, value, _screen_width * _screen_height * sizeof(uint16_t));
+    dma_hw->ch[dma_channel[2]].al1_read_addr = (io_rw_32)transferbuffer;
+    dma_hw->ch[dma_channel[2]].al1_write_addr = (io_rw_32)drawingbuffer;
+    dma_channel_start(dma_channel[2]);
+    dma_channel_wait_for_finish_blocking(dma_channel[2]);
+    return 0;
 }
 
 int cls(uint16_t color) {
@@ -333,6 +377,38 @@ int cls(uint16_t color) {
     }
     return 0;
 }
+
+int box(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color) {
+    uint16_t smaller_x = LARGER((SMALLER(x1, x2)), 0);
+    uint16_t larger_x = SMALLER((LARGER(x1, x2)), _screen_width);
+    uint16_t smaller_y = LARGER((SMALLER(y1, y2)), 0);
+    uint16_t larger_y = SMALLER((LARGER(y1, y2)), _screen_height);
+
+    for(int y = smaller_y; y < larger_y; y++) {
+        if(y == smaller_y || y == larger_y - 1) {
+            for(int x = smaller_x; x < larger_x; x++) {
+                pset(x, y, color);
+            }
+        } else {
+            pset(smaller_x, y, color);
+            pset(larger_x, y, color);
+        }
+    }
+
+    return 0;
+}
+
+int rollv(uint16_t value) {
+    // another dma needed!!!!!
+    //memset((void *)drawingbuffer, value, _screen_width * _screen_height * sizeof(uint16_t));
+    dma_hw->ch[dma_channel[3]].al1_read_addr = (io_rw_32)transferbuffer;
+    dma_hw->ch[dma_channel[3]].al1_write_addr = (io_rw_32)&drawingbuffer[_screen_width * value];
+    dma_hw->ch[dma_channel[3]].transfer_count = _screen_width * (_screen_height - value) / 2;
+    dma_channel_start(dma_channel[3]);
+    dma_channel_wait_for_finish_blocking(dma_channel[3]);
+    return 0;
+}
+
 
 void setup()
 {
@@ -352,6 +428,8 @@ void setup()
     uint sm = 0;
     dma_channel[0] = dma_claim_unused_channel(true);
     dma_channel[1] = dma_claim_unused_channel(true);
+    dma_channel[2] = dma_claim_unused_channel(true);
+    dma_channel[3] = dma_claim_unused_channel(true);
     uint offset = pio_add_program(pio, &parallel_out_program);
 
     setup_pio(pio, sm, offset);
@@ -364,7 +442,6 @@ void setup()
     //    __asm("nop");
     //}
     dma_channel_wait_for_finish_blocking(dma_channel[1]);
-
     dma_channel_start(dma_channel[0]);
     
 }
@@ -394,8 +471,10 @@ void loop()
     }
 
 #if 1 // 画面テスト0
-    static int w = 480;
+    static int w = 0;
 #if defined(YOKO_GAMEN)
+    //clsfast(0);
+    rollv(8);
     #if defined(PIMORINI_PICO_PLUS_2)
     //for(int i = 0; i < DATA_SIZE; i++) {
     //    drawingbuffer[i] = churu_full[i * 2] + churu_full[i * 2 + 1] * 256;
@@ -404,8 +483,11 @@ void loop()
     memcpy((void *)&drawingbuffer[0], (const void *)&churu_full[_screen_width * (_screen_height - w) * 2], _screen_width * w * 2);
     memcpy((void *)&drawingbuffer[800 * w], (const void *)&churu_full[0], _screen_width * (_screen_height - w) * 2);
 #else
-    memcpy((void *)&drawingbuffer[0], (const void *)&image004[_screen_width * (1352 - w) * 2], _screen_width * _screen_height * 2);
-
+    //memcpy((void *)&drawingbuffer[0], (const void *)&image004[_screen_width * (1352 - w) * 2], _screen_width * w * 2);
+    memcpy((void *)&drawingbuffer[0], (const void *)&image004[_screen_width * (1352 - w) * 2], _screen_width * 8 * 2);
+    //for(int i = 0; i < 8; i++) {
+    //    box(random(799), random(479), random(799), random(479), random(65535));
+    //}
 #endif
     //cls(31 << 11 | 0 << 5 | 31);
 
