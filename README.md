@@ -17,3 +17,6 @@ Transfer source reconfiguration:.
 Data transfer combined with PIO:.
         Set the FIFO of the PIO as the data transfer destination and combine it with GPIO control using the PIO program.
         This enables fast and continuous data transfer.
+
+LICENCE:.
+This program #includes pngle[https://github.com/kikuchan/pngle] (author: kikuchan/@kikuchan98, MIT License) for PNG loading.
