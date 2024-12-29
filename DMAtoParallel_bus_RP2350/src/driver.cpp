@@ -10,12 +10,15 @@
 #include "hardware/dma.h"
 #include "parallel_out.pio.h"
 
+#include "pngle.h"
+
 #define TFT_D0 0       // GPIO0〜7をデータバスに使用
 #define TFT_CS 12
 #define TFT_RS 8
 #define TFT_RD 9
 #define TFT_RESET 10
 #define TFT_WR 11
+#define TFT_DEBUG_SIG 15
 #if defined(PIMORINI_PICO_PLUS_2)
 #define DATA_SIZE 800*480   // 画面サイズ
 #else
@@ -23,6 +26,7 @@
 #endif
 #if defined(PIMORINI_PICO_PLUS_2)
 __attribute__((aligned(4))) uint16_t framebuffer[2][DATA_SIZE] PSRAM; // ピクセルデータを格納
+__attribute__((aligned(4))) uint16_t chip_map[256 * 256] PSRAM;
 #else
 __attribute__((aligned(4))) uint16_t framebuffer[1][DATA_SIZE];
 #endif
@@ -41,7 +45,7 @@ void setup_gpio(void){
         gpio_set_dir(i, GPIO_OUT);
     }
 
-    int tft_pins[] = {TFT_RS, TFT_RD, TFT_WR, TFT_RESET, TFT_CS};
+    int tft_pins[] = {TFT_RS, TFT_RD, TFT_WR, TFT_RESET, TFT_CS, TFT_DEBUG_SIG};
     for (int i = 0; i < sizeof(tft_pins) / sizeof(int); i++) {
         gpio_init(tft_pins[i]);
         gpio_set_drive_strength(tft_pins[i], GPIO_DRIVE_STRENGTH_4MA);
@@ -221,8 +225,9 @@ void setup_pio(PIO pio, uint sm, uint offset) {
     for (int i = TFT_D0; i < TFT_D0 + 8; i++) {
         pio_gpio_init(pio, i);
     }
-    // GP11 を PIO に設定
+    // WR, DEGUG_SIG を PIO に設定
     pio_gpio_init(pio, TFT_WR);
+    //pio_gpio_init(pio, TFT_DEBUG_SIG);
 
     // ピン方向の設定
     pio_sm_set_consecutive_pindirs(pio, sm, TFT_D0, 8, true); // データピン出力
@@ -231,7 +236,11 @@ void setup_pio(PIO pio, uint sm, uint offset) {
     // PIOの初期設定
     pio_sm_config config = parallel_out_program_get_default_config(offset);
     sm_config_set_out_pins(&config, TFT_D0, 8); // データバスの出力ピン設定
+#if 0
     sm_config_set_set_pins(&config, TFT_WR, 1);      // GP11をSET命令で操作対象
+#else
+    sm_config_set_set_pins(&config, TFT_WR, 2);      // GP11ほかをSET命令で操作対象
+#endif
     sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_TX);
     #if defined(PIMORINI_PICO_PLUS_2)
     #else
@@ -243,6 +252,13 @@ void setup_pio(PIO pio, uint sm, uint offset) {
     pio_sm_init(pio, sm, offset, &config);
     // ステートマシンを有効化
     pio_sm_set_enabled(pio, sm, true);
+}
+
+// generate debug signal
+void dma_irq_handler(void) {
+    digitalWrite(TFT_DEBUG_SIG, HIGH);
+    dma_hw->ints0 = 1u << dma_channel[1];   // clear irq.
+    digitalWrite(TFT_DEBUG_SIG, LOW);
 }
 
 dma_channel_config dma_config[4];
@@ -289,6 +305,11 @@ void setup_dma(PIO pio, uint sm) {
             1,    // 転送回数
             false           // 自動開始しない
         );
+        // ブロック終了でIRQライン0を上げるようにDMAに指示
+        dma_channel_set_irq0_enabled(dma_channel[1], true);
+        // 割り込みハンドラ登録
+        irq_set_exclusive_handler(DMA_IRQ_0, dma_irq_handler);
+        irq_set_enabled(DMA_IRQ_0, true);
 
 #if 1
         /* データ転送DMA (to frame buffer) */
@@ -332,8 +353,9 @@ void setup_debug_serial_out(void) {
 }
 
 void initframebuffers(void) {
-    memset((void *)transferbuffer, 0, sizeof(framebuffer));
-    memset((void *)drawingbuffer, 12345, sizeof(framebuffer));
+    //memset((void *)transferbuffer, 0, sizeof(DATA_SIZE * 2));
+    //memset((void *)drawingbuffer, 15, sizeof(DATA_SIZE * 2));
+    memset((void *)framebuffer, 0xaa, sizeof(framebuffer));
 }
 
 #include "churu_yoko-gamen.h"
@@ -341,6 +363,7 @@ void initframebuffers(void) {
 #if defined(PIMORINI_PICO_PLUS_2)
 #include "churu_full.h"
 #include "image004.h"
+#include "data.h"
 #endif
 
 // API
@@ -351,7 +374,11 @@ uint16_t _screen_height = 480;
 #define SMALLER(x,y) ((x)<=(y)?(x):(y))
 #define LARGER(x,y) ((x)>=(y)?(x):(y)) 
 
-int pset(int16_t x, int16_t y, uint16_t color) {
+inline uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
+    return (r >> 3) << 11 | (g >> 2) << 5 | (b >> 3);
+}
+
+inline int pset(int16_t x, int16_t y, uint16_t color) {
     if(0 <= x && x <= _screen_width && 0 <= y && y <= _screen_height) {
         drawingbuffer[y * _screen_width + x] = color;
         return 0;
@@ -365,7 +392,7 @@ int clsfast(uint16_t value) {
     dma_hw->ch[dma_channel[2]].al1_read_addr = (io_rw_32)transferbuffer;
     dma_hw->ch[dma_channel[2]].al1_write_addr = (io_rw_32)drawingbuffer;
     dma_channel_start(dma_channel[2]);
-    dma_channel_wait_for_finish_blocking(dma_channel[2]);
+    //dma_channel_wait_for_finish_blocking(dma_channel[2]);
     return 0;
 }
 
@@ -398,9 +425,22 @@ int box(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color) {
     return 0;
 }
 
+int boxfill(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color) {
+    uint16_t smaller_x = LARGER((SMALLER(x1, x2)), 0);
+    uint16_t larger_x = SMALLER((LARGER(x1, x2)), _screen_width);
+    uint16_t smaller_y = LARGER((SMALLER(y1, y2)), 0);
+    uint16_t larger_y = SMALLER((LARGER(y1, y2)), _screen_height);
+
+    for(int y = smaller_y; y < larger_y; y++) {
+        for(int x = smaller_x; x < larger_x; x++) {
+            pset(x, y, color);
+        }
+    }
+
+    return 0;
+}
+
 int rollv(uint16_t value) {
-    // another dma needed!!!!!
-    //memset((void *)drawingbuffer, value, _screen_width * _screen_height * sizeof(uint16_t));
     dma_hw->ch[dma_channel[3]].al1_read_addr = (io_rw_32)transferbuffer;
     dma_hw->ch[dma_channel[3]].al1_write_addr = (io_rw_32)&drawingbuffer[_screen_width * value];
     dma_hw->ch[dma_channel[3]].transfer_count = _screen_width * (_screen_height - value) / 2;
@@ -409,6 +449,33 @@ int rollv(uint16_t value) {
     return 0;
 }
 
+pngle_t *pngle;
+void pngle_on_draw(pngle_t *pngle, uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint8_t rgba[4]) {
+    uint16_t color = (rgba[0] << 8 & 0xf800) | (rgba[1] << 3 & 0x07e0) | (rgba[2] >> 3 & 0x001f);
+    //pset(x, y, color);
+    chip_map[y * 256 + x] = color;
+
+}
+
+int loadpng(const uint8_t *p_pngdata) {
+    int fed = pngle_feed(pngle, p_pngdata, sizeof(pngdata));
+    pngle_ihdr_t *ihdr = pngle_get_ihdr(pngle);
+    DBG("%d\n", ihdr->width);
+    return fed;
+}
+
+int sprite(uint16_t sx, uint16_t sy, uint16_t cx, uint16_t cy, uint16_t w, uint16_t h, uint16_t trans) {
+    for(int y = 0; y < h; y++) {
+        for(int x = 0; x < w; x++) {
+            uint16_t pixel = chip_map[(y + cy) * 256 + (x + cx)];
+            if(pixel != trans) {
+                pset(sx + x, sy + y, pixel);
+            }
+        }
+    }
+
+    return 0; 
+}
 
 void setup()
 {
@@ -417,9 +484,16 @@ void setup()
     
     psram_size = rp2040.getPSRAMSize();
     DBG("PSRAM size:%d\n", psram_size);
-    //framebuffer  = (uint16_t *)pmalloc(DATA_SIZE);
+
+    // load png to draw on chip map (PSRAM)
+    pngle = pngle_new();
+    pngle_set_draw_callback(pngle, pngle_on_draw);
+    loadpng(pngdata);
 
     setup_gpio();
+    // reset DEBUG_SIG
+    dma_irq_handler();
+
     // NT35510初期化
     init_LCD();    
     
@@ -474,7 +548,7 @@ void loop()
     static int w = 0;
 #if defined(YOKO_GAMEN)
     //clsfast(0);
-    rollv(8);
+    rollv(4);
     #if defined(PIMORINI_PICO_PLUS_2)
     //for(int i = 0; i < DATA_SIZE; i++) {
     //    drawingbuffer[i] = churu_full[i * 2] + churu_full[i * 2 + 1] * 256;
@@ -483,16 +557,18 @@ void loop()
     memcpy((void *)&drawingbuffer[0], (const void *)&churu_full[_screen_width * (_screen_height - w) * 2], _screen_width * w * 2);
     memcpy((void *)&drawingbuffer[800 * w], (const void *)&churu_full[0], _screen_width * (_screen_height - w) * 2);
 #else
-    //memcpy((void *)&drawingbuffer[0], (const void *)&image004[_screen_width * (1352 - w) * 2], _screen_width * w * 2);
-    memcpy((void *)&drawingbuffer[0], (const void *)&image004[_screen_width * (1352 - w) * 2], _screen_width * 8 * 2);
-    //for(int i = 0; i < 8; i++) {
-    //    box(random(799), random(479), random(799), random(479), random(65535));
-    //}
+    memcpy((void *)&drawingbuffer[0], (const void *)&image004[_screen_width * (1352 - w) * 2], _screen_width * 4 * 2);
+    //cls(rgb(64, 64, 64));
+    int xx = random(800);
+    int yy = random(480);
+    //boxfill(xx, yy, xx + 16, yy + 16, random(65536));
+    sprite(xx, yy, random(10) * 24, random(10) * 24, 24, 24, rgb(255, 255, 255));
+
 #endif
     //cls(31 << 11 | 0 << 5 | 31);
 
 
-    w += 8; if(w >= 1352) {w = 0;}
+    w += 4; if(w >= 1352) {w = 0;}
     #else
     memcpy((void *)(framebuffer[0] + w * 400), (const void *)(churu), 480 * 400 * 2 - w * 800);
     memcpy((void *)(framebuffer[0]), (const void *)(churu + (480 - w) * 800), 400 * w * 2);
