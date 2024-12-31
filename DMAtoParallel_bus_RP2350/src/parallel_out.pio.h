@@ -9,17 +9,17 @@
 // ------------ //
 
 #define parallel_out_wrap_target 0
-#if defined(PIMORINI_PICO_PLUS_2)
-#define parallel_out_wrap 19
+#if defined(PIMORONI_PICO_PLUS_2)
+#define parallel_out_wrap 12 //19
 #else
 #define parallel_out_wrap 14
 #endif
 #define parallel_out_pio_version 0
 
 static const uint16_t parallel_out_program_instructions[] = {
-#if defined(PIMORINI_PICO_PLUS_2)
+#if defined(PIMORONI_PICO_PLUS_2)
             //     .wrap_target
-#if 1 // 16bit little-endian x 2をひっくり返して出力する。
+#if 0 // 16bit little-endian x 2をひっくり返して出力する。
     0x80a0, //  0: pull   block
     0xa027, //  1: mov    x, osr
     0x6068, //  2: out    null, 8
@@ -42,18 +42,18 @@ static const uint16_t parallel_out_program_instructions[] = {
     0xe001, // 19: set    pins, 1
 #else
     0x80a0, //  0: pull   block
-    0x6108, //  3: out    pins, 8
-    0xe100, //  4: set    pins, 0
-    0xe101, //  5: set    pins, 1
-    0x6108, //  3: out    pins, 8
-    0xe100, //  4: set    pins, 0
-    0xe101, //  5: set    pins, 1
-    0x6108, //  3: out    pins, 8
-    0xe100, //  4: set    pins, 0
-    0xe101, //  5: set    pins, 1
-    0x6108, //  3: out    pins, 8
-    0xe100, //  4: set    pins, 0
-    0xe101, //  5: set    pins, 1
+    0x6008, //  3: out    pins, 8
+    0xe000, //  4: set    pins, 0
+    0xe001, //  5: set    pins, 1
+    0x6008, //  3: out    pins, 8
+    0xe000, //  4: set    pins, 0
+    0xe001, //  5: set    pins, 1
+    0x6008, //  3: out    pins, 8
+    0xe000, //  4: set    pins, 0
+    0xe001, //  5: set    pins, 1
+    0x6008, //  3: out    pins, 8
+    0xe000, //  4: set    pins, 0
+    0xe001, //  5: set    pins, 1
 #endif
 
             //     .wrap
@@ -83,8 +83,8 @@ static const uint16_t parallel_out_program_instructions[] = {
 #if !PICO_NO_HARDWARE
 static const struct pio_program parallel_out_program = {
     .instructions = parallel_out_program_instructions,
-#if defined(PIMORINI_PICO_PLUS_2)
-    .length = 20,
+#if defined(PIMORONI_PICO_PLUS_2)
+    .length = 13, //20,
 #else
     .length = 15,
 #endif
