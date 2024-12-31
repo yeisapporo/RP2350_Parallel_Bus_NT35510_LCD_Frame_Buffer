@@ -254,10 +254,11 @@ void setup_pio(PIO pio, uint sm, uint offset) {
     pio_sm_set_enabled(pio, sm, true);
 }
 
-// generate debug signal
 void dma_irq_handler(void) {
-    digitalWrite(TFT_DEBUG_SIG, HIGH);
     dma_hw->ints0 = 1u << dma_channel[1];   // clear irq.
+    digitalWrite(TFT_DEBUG_SIG, HIGH);
+    digitalWrite(TFT_DEBUG_SIG, LOW);
+    digitalWrite(TFT_DEBUG_SIG, HIGH);
     digitalWrite(TFT_DEBUG_SIG, LOW);
 }
 
@@ -267,6 +268,9 @@ void setup_dma(PIO pio, uint sm) {
         dma_config[0] = dma_channel_get_default_config(dma_channel[0]);
 #if defined(PIMORINI_PICO_PLUS_2)
         channel_config_set_transfer_data_size(&dma_config[0], DMA_SIZE_32);
+        channel_config_set_bswap(&dma_config[0], true);
+        channel_config_set_high_priority(&dma_config[3], true);        
+
 #else
         channel_config_set_transfer_data_size(&dma_config[0], DMA_SIZE_16);
 #endif
@@ -312,7 +316,7 @@ void setup_dma(PIO pio, uint sm) {
         irq_set_enabled(DMA_IRQ_0, true);
 
 #if 1
-        /* データ転送DMA (to frame buffer) */
+        /* データ転送DMA (to frame buffer) 何に使っているか？不要になったかも */
         dma_config[2] = dma_channel_get_default_config(dma_channel[2]);
         channel_config_set_transfer_data_size(&dma_config[2], DMA_SIZE_32);
         channel_config_set_read_increment(&dma_config[2], true);
@@ -355,7 +359,7 @@ void setup_debug_serial_out(void) {
 void initframebuffers(void) {
     //memset((void *)transferbuffer, 0, sizeof(DATA_SIZE * 2));
     //memset((void *)drawingbuffer, 15, sizeof(DATA_SIZE * 2));
-    memset((void *)framebuffer, 0xaa, sizeof(framebuffer));
+    memset((void *)framebuffer, 0x00, sizeof(framebuffer));
 }
 
 #include "churu_yoko-gamen.h"
@@ -368,8 +372,16 @@ void initframebuffers(void) {
 
 // API
 uint16_t _color = 0;
+#if defined(PIMORINI_PICO_PLUS_2)
 uint16_t _screen_width = 800;
 uint16_t _screen_height = 480;
+#elif defined(YOKO_GAMEN)
+uint16_t _screen_width = 400;
+uint16_t _screen_height = 480;
+#else
+uint16_t _screen_width = 800;
+uint16_t _screen_height = 240;
+#endif
 
 #define SMALLER(x,y) ((x)<=(y)?(x):(y))
 #define LARGER(x,y) ((x)>=(y)?(x):(y)) 
@@ -378,9 +390,12 @@ inline uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
     return (r >> 3) << 11 | (g >> 2) << 5 | (b >> 3);
 }
 
-inline int pset(int16_t x, int16_t y, uint16_t color) {
+inline int pset(int16_t x, int16_t y, uint16_t color, bool draw_both) {
     if(0 <= x && x <= _screen_width && 0 <= y && y <= _screen_height) {
         drawingbuffer[y * _screen_width + x] = color;
+        if(draw_both) {
+            transferbuffer[y * _screen_width + x] = color;
+        }
         return 0;
     } else {
         return -1;
@@ -392,54 +407,111 @@ int clsfast(uint16_t value) {
     dma_hw->ch[dma_channel[2]].al1_read_addr = (io_rw_32)transferbuffer;
     dma_hw->ch[dma_channel[2]].al1_write_addr = (io_rw_32)drawingbuffer;
     dma_channel_start(dma_channel[2]);
-    //dma_channel_wait_for_finish_blocking(dma_channel[2]);
+    dma_channel_wait_for_finish_blocking(dma_channel[2]);
     return 0;
 }
 
-int cls(uint16_t color) {
+int cls(uint16_t color, bool both) {
     for(int y = 0; y < _screen_height; y++) {
         for(int x = 0; x < _screen_width; x++) {
-            pset(x, y, color);
+            pset(x, y, color, both);
         }
     }
     return 0;
 }
 
-int box(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color) {
+int box(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color, bool both) {
+    // 座標の正規化（x1, y1 が左上、x2, y2 が右下になるよう調整）
+    if (x1 > x2) { int16_t temp = x1; x1 = x2; x2 = temp; }
+    if (y1 > y2) { int16_t temp = y1; y1 = y2; y2 = temp; }
+
+    // 上辺と下辺を描画
+    for (int x = x1; x <= x2; x++) {
+        pset(x, y1, color, both); // 上辺
+        pset(x, y2, color, both); // 下辺
+    }
+
+    // 左辺と右辺を描画（上下の角は既に描画されているため除外）
+    for (int y = y1 + 1; y < y2; y++) {
+        pset(x1, y, color, both); // 左辺
+        pset(x2, y, color, both); // 右辺
+    }
+
+    return 0;
+}
+
+int boxfill(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color, bool both) {
     uint16_t smaller_x = LARGER((SMALLER(x1, x2)), 0);
     uint16_t larger_x = SMALLER((LARGER(x1, x2)), _screen_width);
     uint16_t smaller_y = LARGER((SMALLER(y1, y2)), 0);
     uint16_t larger_y = SMALLER((LARGER(y1, y2)), _screen_height);
 
-    for(int y = smaller_y; y < larger_y; y++) {
-        if(y == smaller_y || y == larger_y - 1) {
-            for(int x = smaller_x; x < larger_x; x++) {
-                pset(x, y, color);
-            }
+    for(int y = smaller_y; y <= larger_y; y++) {
+        for(int x = smaller_x; x <= larger_x; x++) {
+            pset(x, y, color, both);
+        }
+    }
+
+    return 0;
+}
+
+int line(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color, bool both) {
+    int16_t dx = abs(x2 - x1);
+    int16_t dy = abs(y2 - y1);
+    int16_t direction_x = (x1 < x2) ? 1 : -1;
+    int16_t direction_y = (y1 < y2) ? 1 : -1;
+    int16_t err = dx - dy; // 誤差
+    int16_t bak;
+
+    for(;;) {
+        pset(x1, y1, color, both);
+        if (x1 == x2 && y1 == y2) {
+            break;
+        }
+        bak = err;
+        // x方向の誤差が大きければxを更新
+        if (bak > -dy) {
+            err -= dy;
+            x1 += direction_x;
+        }
+        // y方向の誤差が大きければyを更新
+        if (bak < dx) {
+            err += dx;
+            y1 += direction_y;
+        }
+    }
+    return 0;
+}
+
+int circle(int16_t x0, int16_t y0, int16_t r, uint16_t color, bool both) {
+    int16_t x = r;
+    int16_t y = 0;
+    int16_t err = 1 - r;
+
+    while (x >= y) {
+        pset(x0 + x, y0 + y, color, both); // 第一象限
+        pset(x0 + y, y0 + x, color, both); // 第二象限
+        pset(x0 - y, y0 + x, color, both); // 第三象限
+        pset(x0 - x, y0 + y, color, both); // 第四象限
+        pset(x0 - x, y0 - y, color, both); // 第五象限
+        pset(x0 - y, y0 - x, color, both); // 第六象限
+        pset(x0 + y, y0 - x, color, both); // 第七象限
+        pset(x0 + x, y0 - y, color, both); // 第八象限
+
+        y++;
+        if (err < 0) {
+            err += y << 1 + 1;
         } else {
-            pset(smaller_x, y, color);
-            pset(larger_x, y, color);
+            x--;
+            err += (y - x) << 1 + 1;
         }
     }
 
     return 0;
 }
 
-int boxfill(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color) {
-    uint16_t smaller_x = LARGER((SMALLER(x1, x2)), 0);
-    uint16_t larger_x = SMALLER((LARGER(x1, x2)), _screen_width);
-    uint16_t smaller_y = LARGER((SMALLER(y1, y2)), 0);
-    uint16_t larger_y = SMALLER((LARGER(y1, y2)), _screen_height);
-
-    for(int y = smaller_y; y < larger_y; y++) {
-        for(int x = smaller_x; x < larger_x; x++) {
-            pset(x, y, color);
-        }
-    }
-
-    return 0;
-}
-
+// Function to transfer the contents of a transferbuffer to a drawingbuffer
+// by the specified scrolling amount.
 int rollv(uint16_t value) {
     dma_hw->ch[dma_channel[3]].al1_read_addr = (io_rw_32)transferbuffer;
     dma_hw->ch[dma_channel[3]].al1_write_addr = (io_rw_32)&drawingbuffer[_screen_width * value];
@@ -464,12 +536,12 @@ int loadpng(const uint8_t *p_pngdata) {
     return fed;
 }
 
-int sprite(uint16_t sx, uint16_t sy, uint16_t cx, uint16_t cy, uint16_t w, uint16_t h, uint16_t trans) {
+int sprite(uint16_t sx, uint16_t sy, uint16_t cx, uint16_t cy, uint16_t w, uint16_t h, uint16_t trans, bool both) {
     for(int y = 0; y < h; y++) {
         for(int x = 0; x < w; x++) {
             uint16_t pixel = chip_map[(y + cy) * 256 + (x + cx)];
             if(pixel != trans) {
-                pset(sx + x, sy + y, pixel);
+                pset(sx + x, sy + y, pixel, both);
             }
         }
     }
@@ -512,9 +584,6 @@ void setup()
     // 最初のDMAチャンネルを起動
     initframebuffers();
     sleep_us(2000);
-    //while(dma_hw->ch[dma_channel[0]].al1_ctrl & DMA_CH0_CTRL_TRIG_BUSY_BITS) {
-    //    __asm("nop");
-    //}
     dma_channel_wait_for_finish_blocking(dma_channel[1]);
     dma_channel_start(dma_channel[0]);
     
@@ -546,9 +615,10 @@ void loop()
 
 #if 1 // 画面テスト0
     static int w = 0;
+    static int cnt = 0;
 #if defined(YOKO_GAMEN)
     //clsfast(0);
-    rollv(4);
+    ////rollv(0);
     #if defined(PIMORINI_PICO_PLUS_2)
     //for(int i = 0; i < DATA_SIZE; i++) {
     //    drawingbuffer[i] = churu_full[i * 2] + churu_full[i * 2 + 1] * 256;
@@ -557,18 +627,23 @@ void loop()
     memcpy((void *)&drawingbuffer[0], (const void *)&churu_full[_screen_width * (_screen_height - w) * 2], _screen_width * w * 2);
     memcpy((void *)&drawingbuffer[800 * w], (const void *)&churu_full[0], _screen_width * (_screen_height - w) * 2);
 #else
-    memcpy((void *)&drawingbuffer[0], (const void *)&image004[_screen_width * (1352 - w) * 2], _screen_width * 4 * 2);
+    ////memcpy((void *)&drawingbuffer[0], (const void *)&image004[_screen_width * (1352 - w) * 2], _screen_width * 4 * 2);
     //cls(rgb(64, 64, 64));
-    int xx = random(800);
-    int yy = random(480);
-    //boxfill(xx, yy, xx + 16, yy + 16, random(65536));
-    sprite(xx, yy, random(10) * 24, random(10) * 24, 24, 24, rgb(255, 255, 255));
+    #if 1
+    for(int i = 0; i < 8; i++) {
+        sprite(random(800)/24*24, random(480)/24*24, random(10)*24, random(10)*24, 24, 24, rgb(255, 255, 255), true);
+        // スクロール単位分のライン数で転送するように変えること
+        line(random(800), random(480), random(800), random(480), rgb(random(256), random(256), random(256)), true);
+        box(random(800), random(480), random(800), random(480), rgb(random(256), random(256), random(256)), true);
+        circle(random(800), random(480), random(480), rgb(random(256), random(256), random(256)), true);
+    }
+    #endif
 
 #endif
-    //cls(31 << 11 | 0 << 5 | 31);
 
+    w += 1; if(w >= 1352) {w = 0;}
+    cnt++;if(cnt >=4){cnt = 0;}
 
-    w += 4; if(w >= 1352) {w = 0;}
     #else
     memcpy((void *)(framebuffer[0] + w * 400), (const void *)(churu), 480 * 400 * 2 - w * 800);
     memcpy((void *)(framebuffer[0]), (const void *)(churu + (480 - w) * 800), 400 * w * 2);
@@ -588,5 +663,13 @@ void loop()
 
     swapbuffer();
     
-    //sleep_us(1000); // 適当に遅延を入れてみる
+    sleep_us(10); // 適当に遅延
+}
+
+void setup1(void) {
+    ;
+}
+
+void loop1(void) {
+    ;
 }
