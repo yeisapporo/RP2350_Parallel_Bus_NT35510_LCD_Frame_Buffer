@@ -4,7 +4,7 @@
 ///////////////////////////////////////////////////////////////////////////////////
 #include <Arduino.h>
 #include "nt35510.hpp"
-class NT35510LCD lcd;
+NT35510LCD lcd;
 
 void setup_debug_serial_out(void) {
     #define DBG Serial1.printf
@@ -19,6 +19,8 @@ inline uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
 
 void setup()
 {
+    //sem_init(&bitblt_sem, 1, 1);
+
     volatile int psram_size;
     setup_debug_serial_out();
     
@@ -40,11 +42,9 @@ void setup()
     // PIOとDMAの初期化
     PIO pio = pio0;
     uint sm = 0;
-    dma_channel[0] = dma_claim_unused_channel(true);
-    dma_channel[1] = dma_claim_unused_channel(true);
-    dma_channel[2] = dma_claim_unused_channel(true);
-    dma_channel[3] = dma_claim_unused_channel(true);
-    dma_channel[4] = dma_claim_unused_channel(true);
+    for(int i = 0; i < 7; i++) {
+        dma_channel[i] = dma_claim_unused_channel(true);
+    }
     uint offset = pio_add_program(pio, &parallel_out_program);
 
     lcd.setup_pio(pio, sm, offset);
@@ -52,13 +52,14 @@ void setup()
 
     // 最初のDMAチャンネルを起動
     lcd.initframebuffers();
-    sleep_us(2000);
+    sleep_us(1000);
     dma_channel_wait_for_finish_blocking(dma_channel[1]);
     dma_channel_start(dma_channel[0]);
     
 }
 
-uint16_t map_table[][2] = {
+const uint16_t map_table[][2] = {
+    //  Y         X
     { 7 * 24,  0 * 24},
     { 7 * 24,  1 * 24},
     { 7 * 24,  2 * 24},
@@ -71,7 +72,7 @@ uint16_t map_table[][2] = {
     { 7 * 24,  9 * 24},
 };
 
-uint8_t field_map[32][16] = {
+const uint8_t field_map[32][16] = {
     {0x01, 0x02, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x01}, 
     {0x05, 0x02, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05}, 
     {0x05, 0x02, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05}, 
@@ -158,11 +159,10 @@ void loop() {
 
     lcd.swapbuffer();
     
-    sleep_us(10); // 適当に遅延
+    //sleep_us(10); // 適当に遅延
 }
 
 void setup1(void) {
-    ;
 }
 
 void loop1(void) {
@@ -191,20 +191,12 @@ void loop1(void) {
             // Only actually draw if the chip about to be drawn is different than the chip
             // already in the drawing destination.
             if(!first_draw_done || (old_table_y != table_y || old_table_x != table_x)) {
-                //lcd.bitblt(chip_map, 400 + x * 24, y * 24, table_x, table_y, 24, 24, true);
-                lcd.sprite(400 + x * 24, y * 24, table_x, table_y, 24, 24, 0, true);
+                lcd.bitblt(chip_map, 400 + x * 24, y * 24, table_x, table_y, 24, 24, true);
+                //lcd.sprite(400 + x * 24, y * 24, table_x, table_y, 24, 24, 0, true);
             }
         }
     }
     first_draw_done = true;
     cnt--;if(cnt < 0){cnt = 15;}
-    // debug
-    digitalWrite(TFT_DEBUG_SIG, HIGH);
-    digitalWrite(TFT_DEBUG_SIG, LOW);
-    digitalWrite(TFT_DEBUG_SIG, HIGH);
-    digitalWrite(TFT_DEBUG_SIG, LOW);
 
-    //lcd.swapbuffer();
-    
-    sleep_us(10); // 適当に遅延
 }
