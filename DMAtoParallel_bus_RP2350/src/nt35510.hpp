@@ -46,7 +46,16 @@ volatile __attribute__((aligned(4))) uint16_t *drawingbuffer = framebuffer[1];
 volatile __attribute__((aligned(4))) uint16_t *drawingbuffer = framebuffer[0];
 #endif
 
-volatile uint dma_channel[4];
+volatile uint dma_channel[5];
+struct _bitblt_dma {
+    bool busy = false;
+    uint16_t *src;
+    uint16_t src_to_next;
+    uint16_t *dest;
+    uint16_t dest_to_next;
+    int16_t hcnt;   // horizontal
+    int16_t vcnt;   // vertical
+} bitblt_dma, bitblt_dma2;
 
 class NT35510LCD {
     public:
@@ -267,13 +276,33 @@ class NT35510LCD {
 
     static void dma_irq_handler(void) {
         dma_hw->ints0 = 1u << dma_channel[1];   // clear irq.
-        digitalWrite(TFT_DEBUG_SIG, HIGH);
-        digitalWrite(TFT_DEBUG_SIG, LOW);
-        digitalWrite(TFT_DEBUG_SIG, HIGH);
-        digitalWrite(TFT_DEBUG_SIG, LOW);
     }
 
-    dma_channel_config dma_config[4];
+    // 作りかけ
+    static void bitblt_irq_handler1(void) {
+        dma_hw->ints0 = 1u << dma_channel[4];
+        if(bitblt_dma.vcnt > 0) {
+            bitblt_dma.vcnt--;
+            bitblt_dma.src += bitblt_dma.src_to_next;
+            bitblt_dma.dest += bitblt_dma.dest_to_next;
+            dma_channel_set_read_addr(dma_channel[2], bitblt_dma.src, false);
+            dma_channel_set_write_addr(dma_channel[2], bitblt_dma.dest, false);
+            dma_channel_set_trans_count(dma_channel[2], bitblt_dma.hcnt, false);
+        }
+        if(bitblt_dma2.vcnt > 0) {
+            bitblt_dma2.vcnt--;
+            bitblt_dma2.src += bitblt_dma2.src_to_next;
+            bitblt_dma2.dest += bitblt_dma2.dest_to_next;
+            dma_channel_set_read_addr(dma_channel[4], bitblt_dma2.src, false);
+            dma_channel_set_write_addr(dma_channel[4], bitblt_dma2.dest, false);
+            dma_channel_set_trans_count(dma_channel[4], bitblt_dma2.hcnt, false);
+            dma_channel_start(dma_channel[2]);
+        } else {
+            bitblt_dma.busy = false;
+        }
+    }
+
+    dma_channel_config dma_config[5];
     void setup_dma(PIO pio, uint sm) {
         /* データ転送DMA (to LCD) */
         dma_config[0] = dma_channel_get_default_config(dma_channel[0]);
@@ -325,22 +354,42 @@ class NT35510LCD {
         // 割り込みハンドラ登録
         irq_set_exclusive_handler(DMA_IRQ_0, dma_irq_handler);
         irq_set_enabled(DMA_IRQ_0, true);
-#if 1
-        /* データ転送DMA (to frame buffer) 何に使っているか？不要になったかも */
+
+        /* 矩形転送DMA 裏画面(1回1ライン) */
         dma_config[2] = dma_channel_get_default_config(dma_channel[2]);
-        channel_config_set_transfer_data_size(&dma_config[2], DMA_SIZE_32);
+        channel_config_set_transfer_data_size(&dma_config[2], DMA_SIZE_16);
         channel_config_set_read_increment(&dma_config[2], true);
         channel_config_set_write_increment(&dma_config[2], true);
         dma_channel_set_config(dma_channel[2], &dma_config[2], false);
+        channel_config_set_chain_to(&dma_config[2], dma_channel[4]);
         dma_channel_configure(
             dma_channel[2],  // チャネル番号
             &dma_config[2],         // 設定
-            (void *)drawingbuffer,  // 転送先
-            (void *)transferbuffer,       // 転送元
-            SCREEN_SIZE / 2,    // 転送回数
+            (void *)nullptr,  // 転送先
+            (void *)nullptr,       // 転送元
+            1,    // 転送回数
             false           // 自動開始しない
         );
-#endif
+
+        /* 矩形転送DMA 表画面(1回1ライン) */
+        dma_config[4] = dma_channel_get_default_config(dma_channel[4]);
+        channel_config_set_transfer_data_size(&dma_config[4], DMA_SIZE_16);
+        channel_config_set_read_increment(&dma_config[4], true);
+        channel_config_set_write_increment(&dma_config[4], true);
+        dma_channel_set_config(dma_channel[4], &dma_config[4], false);
+        //channel_config_set_chain_to(&dma_config[2], dma_channel[4]);
+        dma_channel_configure(
+            dma_channel[4],  // チャネル番号
+            &dma_config[4],         // 設定
+            (void *)nullptr,  // 転送先
+            (void *)nullptr,       // 転送元
+            1,    // 転送回数
+            false           // 自動開始しない
+        );
+        dma_set_irq1_channel_mask_enabled(1u << dma_channel[4], true);
+        irq_set_exclusive_handler(DMA_IRQ_1, bitblt_irq_handler1);
+        irq_set_enabled(DMA_IRQ_1, true);
+
 #if 1
         /* データ転送DMA (to frame buffer) */
         dma_config[3] = dma_channel_get_default_config(dma_channel[3]);
@@ -367,8 +416,6 @@ class NT35510LCD {
     }
 
     void initframebuffers(void) {
-        //memset((void *)transferbuffer, 0, sizeof(SCREEN_SIZE * 2));
-        //memset((void *)drawingbuffer, 15, sizeof(SCREEN_SIZE * 2));
         memset((void *)framebuffer, 0x00, sizeof(framebuffer));
     }
 
@@ -440,10 +487,10 @@ class NT35510LCD {
     }
 
     int boxfill(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color, bool both) {
-        uint16_t smaller_x = LARGER((SMALLER(x1, x2)), 0);
-        uint16_t larger_x = SMALLER((LARGER(x1, x2)), _screen_width);
-        uint16_t smaller_y = LARGER((SMALLER(y1, y2)), 0);
-        uint16_t larger_y = SMALLER((LARGER(y1, y2)), _screen_height);
+        uint16_t smaller_x = max((min(x1, x2)), 0);
+        uint16_t larger_x = min((max(x1, x2)), _screen_width);
+        uint16_t smaller_y = max((min(y1, y2)), 0);
+        uint16_t larger_y = min((max(y1, y2)), _screen_height);
 
         for(int y = smaller_y; y <= larger_y; y++) {
             for(int x = smaller_x; x <= larger_x; x++) {
@@ -524,7 +571,7 @@ class NT35510LCD {
     static void pngle_on_draw(pngle_t *pngle, uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint8_t rgba[4]) {
         uint16_t color = (rgba[0] << 8 & 0xf800) | (rgba[1] << 3 & 0x07e0) | (rgba[2] >> 3 & 0x001f);
         //pset(x, y, color);
-        chip_map[y * 8 + x] = color;
+        chip_map[y * 256 + x] = color;
     }
 
     int loadpng(const uint8_t *p_pngdata) {
@@ -534,7 +581,6 @@ class NT35510LCD {
         return fed;
     }
 
-    /* 暫定版 */
     int sprite(uint16_t sx, uint16_t sy, uint16_t cx, uint16_t cy, uint16_t w, uint16_t h, uint16_t trans, bool both) {
         for(int y = 0; y < h; y++) {
             for(int x = 0; x < w; x++) {
@@ -548,6 +594,56 @@ class NT35510LCD {
         return 0; 
     }
 
+    int bitblt(uint16_t *src, uint16_t dest_x, uint16_t dest_y, uint16_t src_x, uint16_t src_y, uint16_t w, uint16_t h, bool both) {
+        volatile uint32_t dummy = 0;
+        while(bitblt_dma.busy) {dummy++;}
+        bitblt_dma.busy = true;
+
+        // specified screen:
+        if(src == (void *)chip_map) {
+            bitblt_dma.src_to_next = 256;
+            bitblt_dma.dest_to_next =_screen_width;
+        } else {
+            bitblt_dma.src_to_next =_screen_width;
+            bitblt_dma.dest_to_next =_screen_width;
+        }
+        bitblt_dma.src = &src[src_y * bitblt_dma.src_to_next + src_x];
+        bitblt_dma.hcnt = w;
+        bitblt_dma.vcnt = h;    // h: height
+        bitblt_dma.dest = (uint16_t *)&drawingbuffer[dest_y * bitblt_dma.dest_to_next + dest_x];
+
+        if(both) {
+            if(src == (void *)chip_map) {
+                bitblt_dma2.src_to_next = 256;
+                bitblt_dma2.dest_to_next =_screen_width;
+            } else {
+                bitblt_dma2.src_to_next =_screen_width;
+                bitblt_dma2.dest_to_next =_screen_width;
+            }
+            bitblt_dma2.src = &src[src_y * bitblt_dma2.src_to_next + src_x];
+            bitblt_dma2.hcnt = w;
+            bitblt_dma2.vcnt = h;    // h: height
+            bitblt_dma2.dest = (uint16_t *)&transferbuffer[dest_y * bitblt_dma2.dest_to_next + dest_x];
+        } else {
+            bitblt_dma2.src = &src[0];
+            bitblt_dma2.hcnt = 0;
+            bitblt_dma2.vcnt = h;    // h: height
+            bitblt_dma2.dest = (uint16_t *)&transferbuffer[0];
+            
+        }
+        dma_channel_set_read_addr(dma_channel[2], bitblt_dma.src, false);
+        dma_channel_set_write_addr(dma_channel[2], bitblt_dma.dest, false);
+        dma_channel_set_trans_count(dma_channel[2], bitblt_dma.hcnt, false);
+
+        dma_channel_set_read_addr(dma_channel[4], bitblt_dma2.src, false);
+        dma_channel_set_write_addr(dma_channel[4], bitblt_dma2.dest, false);
+        dma_channel_set_trans_count(dma_channel[4], bitblt_dma2.hcnt, false);
+
+        dma_channel_start(dma_channel[2]);
+
+        return 0;
+    }
+
     void swapbuffer(void) {
         volatile uint16_t *tmp;
         //uint32_t addr = dma_hw->ch[dma_channel[0]].al1_read_addr;
@@ -556,6 +652,6 @@ class NT35510LCD {
         transferbuffer = tmp;
 
         return;
-}
+    }
 
 };
