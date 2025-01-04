@@ -143,7 +143,8 @@ void loop() {
             uint16_t chip_map_y = abs(y + cnt) % 16;
             uint16_t table_x = map_table[field_map[chip_map_y][x]][1];
             uint16_t table_y = map_table[field_map[chip_map_y][x]][0];
-            // これから書くチップがすでに書き込み先チップと違う時だけ実際に書く。
+            // Only actually draw if the chip about to be drawn is different than the chip
+            // already in the drawing destination.
             if(!first_draw_done || (old_table_y != table_y || old_table_x != table_x)) {
                 lcd.bitblt(chip_map, x * 24, y * 24, table_x, table_y, 24, 24, true);
             }
@@ -170,7 +171,7 @@ void loop1(void) {
         return;
     }
 // drawing test
-    static int cnt = 15;
+    static int cnt = 0;
 #if 0
     for(int i = 0; i < 8; i++) {
         lcd.line(384 + random(416), random(480), 384 + random(416), random(480), rgb(random(128), random(128), random(128)), true);
@@ -182,7 +183,7 @@ void loop1(void) {
     static bool first_draw_done = false;
     for(int y = 0; y < 16; y++) {
         for(int x = 0; x < 16; x++) {
-            uint16_t old_chip_map_y = abs(y + cnt + 1) % 16;
+            uint16_t old_chip_map_y = abs(y + cnt - 1) % 16;
             uint16_t old_table_x = map_table[field_map[old_chip_map_y][x]][1];
             uint16_t old_table_y = map_table[field_map[old_chip_map_y][x]][0];
             uint16_t chip_map_y = abs(y + cnt) % 16;
@@ -191,12 +192,12 @@ void loop1(void) {
             // Only actually draw if the chip about to be drawn is different than the chip
             // already in the drawing destination.
             if(!first_draw_done || (old_table_y != table_y || old_table_x != table_x)) {
-                lcd.bitblt(chip_map, 400 + x * 24, y * 24, table_x, table_y, 24, 24, true);
+                lcd.bitblt(chip_map, 400 + y * 24 , x * 24, table_x, table_y, 24, 24, true);
                 //lcd.sprite(400 + x * 24, y * 24, table_x, table_y, 24, 24, 0, true);
             }
         }
     }
     first_draw_done = true;
-    cnt--;if(cnt < 0){cnt = 15;}
+    cnt++;if(cnt > 16){cnt = 0;}
 
 }

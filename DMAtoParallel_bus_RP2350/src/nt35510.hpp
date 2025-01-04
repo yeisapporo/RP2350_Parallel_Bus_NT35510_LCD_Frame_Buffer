@@ -145,17 +145,17 @@ class NT35510LCD {
         digitalWrite(TFT_RD, HIGH);
 
         // hardware reset
-        delay(150);
+        delay(200);
         digitalWrite(TFT_RESET, LOW);
-        delay(150);
+        delay(200);
         digitalWrite(TFT_RESET, HIGH);
-        delay(150);
+        delay(200);
 
         // send initializing commands.
         sendCommand(0x0100);
-        delay(150);
+        delay(200);
         sendCommand(0x1000);    // Sleep in
-        delay(150);
+        delay(200);
         sendCommand(0xf000, {0x55, 0xaa, 0x52, 0x08, 0x01});    // enable Page1
         sendCommand(0xb600, {0x34, 0x34, 0x34});
         sendCommand(0xb000, {0x0d, 0x0d, 0x0d});    // AVDD Set AVDD 5.2V
@@ -218,9 +218,9 @@ class NT35510LCD {
 #if 1
 #define YOKO_GAMEN
         sendCommand(0x3600, {0b00100001});    // MADCTL display direction
-        sendCommand(0x3a00, {0b01010101});    // 16bit-16bit (two commands are required)
+        sendCommand(0x3a00, {0b01010100});    // 16bit-16bit (two commands are required)
         sendCommand(0x2a00, {0, 0, 0x03, 0x1f});  // long side width: 800
-        sendCommand(0x2b00, {0, 0, 0x02, 0x57});  // short side width: 600 ? for 480
+        sendCommand(0x2b00, {0, 0, 0x02, 0x57});  // short side width: 600(0x257) ? for 480(0x1df)
         sendCommand(0x3000, {0, 0, 0x03, 0x1F});
         sendCommand(0x3500);    // tearing effect line ON
         sendCommand(0x3a00, {0b01010101});    // 16bit-16bit (two commands are required)
@@ -235,11 +235,11 @@ class NT35510LCD {
         sendCommand(0x3a00, {0b01010101});    // 16bit-16bit (two commands are required)
 #endif
 // :UP TO HERE.
-        delay(150);
+        delay(200);
         sendCommand(0x1100);    // Sleep out
-        delay(150);
+        delay(200);
         sendCommand(0x2900);    // Display on
-        delay(150);
+        delay(200);
 
         // start image transfer (column and row are reset to start positions.)             
         sendCommand(0x2c00);        
@@ -389,7 +389,7 @@ class NT35510LCD {
 
         /* 矩形転送DMA 裏画面(1回1ライン) [1] */
         dma_config[2] = dma_channel_get_default_config(dma_channel[2]);
-        channel_config_set_transfer_data_size(&dma_config[2], DMA_SIZE_32);
+        channel_config_set_transfer_data_size(&dma_config[2], DMA_SIZE_16);
         channel_config_set_read_increment(&dma_config[2], true);
         channel_config_set_write_increment(&dma_config[2], true);
         dma_channel_set_config(dma_channel[2], &dma_config[2], false);
@@ -405,7 +405,7 @@ class NT35510LCD {
 
         /* 矩形転送DMA 表画面(1回1ライン) [1] */
         dma_config[4] = dma_channel_get_default_config(dma_channel[4]);
-        channel_config_set_transfer_data_size(&dma_config[4], DMA_SIZE_32);
+        channel_config_set_transfer_data_size(&dma_config[4], DMA_SIZE_16);
         channel_config_set_read_increment(&dma_config[4], true);
         channel_config_set_write_increment(&dma_config[4], true);
         dma_channel_set_config(dma_channel[4], &dma_config[4], false);
@@ -423,7 +423,7 @@ class NT35510LCD {
 
         /* 矩形転送DMA 裏画面(1回1ライン) [2] */
         dma_config[5] = dma_channel_get_default_config(dma_channel[5]);
-        channel_config_set_transfer_data_size(&dma_config[5], DMA_SIZE_32);
+        channel_config_set_transfer_data_size(&dma_config[5], DMA_SIZE_16);
         channel_config_set_read_increment(&dma_config[5], true);
         channel_config_set_write_increment(&dma_config[5], true);
         dma_channel_set_config(dma_channel[5], &dma_config[5], false);
@@ -439,7 +439,7 @@ class NT35510LCD {
 
         /* 矩形転送DMA 表画面(1回1ライン) [2] */
         dma_config[6] = dma_channel_get_default_config(dma_channel[6]);
-        channel_config_set_transfer_data_size(&dma_config[6], DMA_SIZE_32);
+        channel_config_set_transfer_data_size(&dma_config[6], DMA_SIZE_16);
         channel_config_set_read_increment(&dma_config[6], true);
         channel_config_set_write_increment(&dma_config[6], true);
         dma_channel_set_config(dma_channel[6], &dma_config[6], false);
@@ -688,7 +688,7 @@ class NT35510LCD {
             dma_first->dest_to_next =_screen_width;
         }
         dma_first->src = &src[src_y * dma_first->src_to_next + src_x];
-        dma_first->hcnt = w / 2;
+        dma_first->hcnt = w;
         dma_first->vcnt = h;    // h: height
         dma_first->dest = (uint16_t *)&drawingbuffer[dest_y * dma_first->dest_to_next + dest_x];
 
@@ -701,7 +701,7 @@ class NT35510LCD {
                 dma_second->dest_to_next =_screen_width;
             }
             dma_second->src = &src[src_y * dma_second->src_to_next + src_x];
-            dma_second->hcnt = w / 2;
+            dma_second->hcnt = w;
             dma_second->vcnt = h;    // h: height
             dma_second->dest = (uint16_t *)&transferbuffer[dest_y * dma_second->dest_to_next + dest_x];
         } else {
