@@ -60,6 +60,7 @@ public:
                 ((x & 0xFF000000) >> 24));
     }
 
+#if 0
     int utf8_to_utf16(const uint8_t *utf8_data, size_t utf8_len, uint16_t *utf16_data, size_t utf16_max_len) {
         size_t utf16_index = 0;
 
@@ -123,7 +124,9 @@ public:
 
         return utf16_index; // 変換後のUTF-16データのサイズを返す
     }
+#endif
 
+#if 0
     int utf16_to_shift_jis(uint16_t *utf16_data, size_t utf16_len, uint8_t *shift_jis_data, size_t max_len) {
         size_t out_index = 0;
 
@@ -155,6 +158,7 @@ public:
 
         return out_index; // 変換後のバイト数
     }
+#endif
 
     uint16_t jis2kuten(uint16_t jis) {
         return jis - 0x2020;
@@ -164,6 +168,7 @@ public:
         return kuten + 0x2020;
     }
 
+#if 0
     uint16_t jis2sjis(uint16_t jis) {
         uint16_t h = jis >> 8;
         uint16_t l = jis & 0xff;
@@ -186,7 +191,9 @@ public:
 
         return h << 8 | l;
     }
+#endif
 
+#if 0
     uint16_t sjis2jis(uint16_t sjis) {
         uint16_t h = sjis >> 8;
         uint16_t l = sjis & 0xff;
@@ -215,6 +222,99 @@ public:
 
         return h << 8 | l;
     }
+#endif
+
+    /* ★ referred to https://qiita.com/benikabocha/items/e943deb299d0f816f161 */
+    /* ★ */
+    int count_utf8_bytes(uint8_t c) {
+        if(0x00 <= c && c < 0x80) {
+            return 1;
+        } else if(0xc2 <= c && c < 0xe0) {
+            return 2;
+        } else if(0xe0 <= c && c < 0xf0) {
+            return 3;
+        } else if(0xf0 <= c && c < 0xf8) {
+            return 4;
+        }
+        return 0;
+    }
+
+    /* ★ */
+    bool is_trail_byte(uint8_t c) {
+        return (0x80 <= c && c < 0xc0);
+    }
+
+    /* ★ */
+    bool utf8_to_utf32(uint8_t *u8c, uint32_t *u32c /* out */) {
+        int cnt = count_utf8_bytes(u8c[0]);
+
+        switch(cnt) {
+            case 0:
+                return false;
+                break;
+            case 1:
+                *u32c = (uint32_t)u8c[0];
+                break;
+            case 2:
+                if(!is_trail_byte(u8c[1])) {
+                    return false;
+                } else if(u8c[0] & 0x1e == 0) {
+                    return false;
+                }
+                *u32c = (uint32_t)(u8c[0] & 0x1f) << 6
+                      | (uint32_t)(u8c[1] & 0x3f);
+                break;
+            case 3:
+                if(!is_trail_byte(u8c[1]) || !is_trail_byte(u8c[2])) {
+                    return false;
+                } else if((u8c[0] & 0x0f) == 0 && (u8c[1] & 0x20) == 0) {
+                    return false;
+                }
+                *u32c = (uint32_t)(u8c[0] & 0x0f) << 12
+                      | (uint32_t)(u8c[1] & 0x3f) << 6
+                      | (uint32_t)(u8c[2] & 0x3f);
+                break;
+            case 4:
+                if(!is_trail_byte(u8c[1]) || !is_trail_byte(u8c[2]) || !is_trail_byte(u8c[3])) {
+                    return false;
+                } else if((u8c[0] & 0x07) == 0 && (u8c[1] & 0x30) == 0) {
+                    return false;
+                }
+                *u32c = (uint32_t)(u8c[0] & 0x07) << 18
+                      | (uint32_t)(u8c[1] & 0x3F) << 12
+                      | (uint32_t)(u8c[2] & 0x3F) << 6
+                      | (uint32_t)(u8c[3] & 0x3F);
+                break;
+            default:
+                return false;
+        }
+        return true; /* success */
+    }    
+
+    /* ★ */
+    bool utf32_to_uft16(uint32_t u32c, uint16_t *u16c /* out */) {
+        if(u32c < 0 || u32c > 0x10ffff) {
+            return false;
+        } else if(u32c < 0x10000) {
+            u16c[0] = (uint16_t)(u32c);
+            u16c[1] = 0;
+        } else {
+            u16c[0] = (uint16_t)((u32c - 0x10000) / 0x400 + 0xd800);
+            u16c[1] = (uint16_t)((u32c - 0x10000) % 0x400 + 0xdc00);
+        }
+        return true;
+    }
+
+    uint16_t utf8_to_kuten(uint8_t *u8c) {
+        uint32_t utf32_char;
+        uint32_t utf16_char;
+        uint16_t kuten = 0;
+        utf8_to_utf32(u8c, &utf32_char);
+        utf32_to_uft16(utf32_char, (uint16_t *)&utf16_char);
+        
+        // テーブルを引いて句点を求める(2分探索など)。
+        return kuten;
+    }
 
     uint32_t kuten_rom_addr(uint8_t ku, uint8_t ten) {
         uint32_t ret = 0;
@@ -232,6 +332,17 @@ public:
         return ret;
     }
 
+    void load_by_kuten(uint8_t ku, uint8_t ten) {
+        this->send_buf.cmd = 0x03;
+        this->send_buf.addr = this->swap_endian_32(this->kuten_rom_addr(ku, ten)) >> 8;
+
+        this->p_spi->beginTransaction(spisettings);
+        digitalWrite(this->_cs, LOW);
+        this->p_spi->transfer(this->send_buf.uint8, nullptr, sizeof(uint32_t));
+        this->p_spi->transfer(nullptr, this->recv_buf, sizeof(this->recv_buf));
+        digitalWrite(this->_cs, HIGH);
+        this->p_spi->endTransaction();
+    }
 
 
 

@@ -34,17 +34,7 @@ void setup()
 
 #if 1
     jis_rom.init();
-    uint8_t ku = 17;    // 猿
-    uint8_t ten = 78;
-    jis_rom.send_buf.cmd = 0x03;
-    jis_rom.send_buf.addr = jis_rom.swap_endian_32(jis_rom.kuten_rom_addr(ku, ten)) >> 8;
-
-    jis_rom.p_spi->beginTransaction(spisettings);
-    digitalWrite(GT20L16J1Y_CS, LOW);
-    jis_rom.p_spi->transfer(jis_rom.send_buf.uint8, nullptr, sizeof(uint32_t));
-    jis_rom.p_spi->transfer(nullptr, jis_rom.recv_buf, sizeof(jis_rom.recv_buf));
-    digitalWrite(GT20L16J1Y_CS, HIGH);
-    jis_rom.p_spi->endTransaction();
+    jis_rom.load_by_kuten(54, 59);  // 巍
 #endif
 
     psram_size = rp2040.getPSRAMSize();
