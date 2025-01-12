@@ -4,7 +4,17 @@
 ///////////////////////////////////////////////////////////////////////////////////
 #include <Arduino.h>
 #include "nt35510.hpp"
+//#include <SPI.h>
+#include "GT20L16J1Y.hpp"
+
+#define GT20L16J1Y_RX (12)     // MISO
+#define GT20L16J1Y_CS (13)
+#define GT20L16J1Y_SCK (14)
+#define GT20L16J1Y_TX (15)     // MOSI
+
+GT20L16J1Y jis_rom(GT20L16J1Y_RX, GT20L16J1Y_TX, GT20L16J1Y_SCK, GT20L16J1Y_CS);
 NT35510LCD lcd;
+
 
 void setup_debug_serial_out(void) {
     #define DBG Serial1.printf
@@ -19,11 +29,24 @@ inline uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
 
 void setup()
 {
-    //sem_init(&bitblt_sem, 1, 1);
-
     volatile int psram_size;
     setup_debug_serial_out();
-    
+
+#if 1
+    jis_rom.init();
+    uint8_t ku = 17;    // 猿
+    uint8_t ten = 78;
+    jis_rom.send_buf.cmd = 0x03;
+    jis_rom.send_buf.addr = jis_rom.swap_endian_32(jis_rom.kuten_rom_addr(ku, ten)) >> 8;
+
+    jis_rom.p_spi->beginTransaction(spisettings);
+    digitalWrite(GT20L16J1Y_CS, LOW);
+    jis_rom.p_spi->transfer(jis_rom.send_buf.uint8, nullptr, sizeof(uint32_t));
+    jis_rom.p_spi->transfer(nullptr, jis_rom.recv_buf, sizeof(jis_rom.recv_buf));
+    digitalWrite(GT20L16J1Y_CS, HIGH);
+    jis_rom.p_spi->endTransaction();
+#endif
+
     psram_size = rp2040.getPSRAMSize();
     DBG("PSRAM size:%d\n", psram_size);
 
@@ -40,15 +63,15 @@ void setup()
     lcd.init_LCD();    
     
     // PIOとDMAの初期化
-    PIO pio = pio0;
-    uint sm = 0;
+    ////PIO pio = pio0;
+    ////uint sm = 0;
     for(int i = 0; i < 7; i++) {
         dma_channel[i] = dma_claim_unused_channel(true);
     }
-    uint offset = pio_add_program(pio, &parallel_out_program);
+    uint offset = pio_add_program(lcd.pio, &parallel_out_program);
 
-    lcd.setup_pio(pio, sm, offset);
-    lcd.setup_dma(pio, sm);
+    lcd.setup_pio(lcd.pio, lcd.sm, offset);
+    lcd.setup_dma(lcd.pio, lcd.sm);
 
     // 最初のDMAチャンネルを起動
     lcd.initframebuffers();
@@ -147,19 +170,57 @@ void loop() {
             // already in the drawing destination.
             if(!first_draw_done || (old_table_y != table_y || old_table_x != table_x)) {
                 lcd.bitblt(chip_map, x * 24, y * 24, table_x, table_y, 24, 24, true);
+
+    // パラレルバス共有お試し
+    // YM2203C制御用にD0-D7を明け渡すのは止める。描画が乱れるため。
+    // YM2203Cはシリアルバスで制御することを検討。
+    #if 0
+    {
+    digitalWrite(TFT_DEBUG_SIG, HIGH);
+    digitalWrite(TFT_DEBUG_SIG, LOW);
+        //dma_channel_wait_for_finish_blocking(dma_channel[0]);
+        pio_sm_set_enabled(lcd.pio, lcd.sm, false);
+        for (int i = TFT_D0; i < TFT_D0 + 8; i++) {
+            gpio_set_function(i, GPIO_FUNC_SIO);
+            gpio_put(i, false);
+        } 
+        #if 0
+        lcd.sendCommand(0xff00, {0xaa,0x55,0x25,0x01}); // enable page ??.
+        lcd.sendCommand(0x3900);    // idle mode on [OK]
+        #else
+        // control other devices.
+        //sleep_us(50);        
+        #endif
+        lcd.sendCommand(0xff00, {0xaa,0x55,0x25,0x01}); // enable page ??.
+        lcd.sendCommand(0x3c00);    // memory write re-start.
+        
+        for (int i = TFT_D0; i < TFT_D0 + 8; i++) {
+            //pio_gpio_init(lcd.pio, i);
+            gpio_set_function(i, GPIO_FUNC_PIO0);
+        } 
+        //pio_gpio_init(lcd.pio, TFT_WR);
+        gpio_set_function(TFT_WR, GPIO_FUNC_PIO0);
+        
+        pio_sm_set_enabled(lcd.pio, lcd.sm, true);
+        dma_channel_start(dma_channel[0]);
+    //lcd.setup_pio(lcd.pio, lcd.sm, pio_add_program(lcd.pio, &parallel_out_program));
+    digitalWrite(TFT_DEBUG_SIG, HIGH);
+    digitalWrite(TFT_DEBUG_SIG, LOW);
+    }
+    #endif
             }
         }
     }
+
+    // 漢字表示テスト
+    lcd.put_char(0, 400, &jis_rom.recv_buf[0], rgb(0, 255, 0));
+    lcd.put_char_scaled(32, 400, &jis_rom.recv_buf[0], rgb(255, 0, 0), 2);
+    lcd.put_char_scaled(80, 400, &jis_rom.recv_buf[0], rgb(255, 255, 0), 4);
+    lcd.put_char_scaled_line(160, 400, &jis_rom.recv_buf[0], rgb(255, 255, 255), 4);
+
     first_draw_done = true;
     cnt--;if(cnt < 0){cnt = 15;}
-    // debug
-    digitalWrite(TFT_DEBUG_SIG, HIGH);
-    digitalWrite(TFT_DEBUG_SIG, LOW);
-    digitalWrite(TFT_DEBUG_SIG, HIGH);
-    digitalWrite(TFT_DEBUG_SIG, LOW);
-
-    lcd.swapbuffer();
-    
+    lcd.swapbuffer();    
     //sleep_us(10); // 適当に遅延
 }
 

@@ -22,12 +22,13 @@
 #endif
 
 #define TFT_D0 0       // GPIO0〜7をデータバスに使用
-#define TFT_CS 12
+#define TFT_CS 18
 #define TFT_RS 8
 #define TFT_RD 9
 #define TFT_RESET 10
 #define TFT_WR 11
-#define TFT_DEBUG_SIG 15
+#define TFT_DEBUG_SIG 28    // 漢字ROM接続時は他ピンに変更すること。
+
 #if defined(PIMORONI_PICO_PLUS_2)
 #define SCREEN_SIZE 800*480   // 画面サイズ
 #else
@@ -62,6 +63,9 @@ semaphore_t bitblt_sem;
 
 class NT35510LCD {
     public:
+    PIO pio = pio0;
+    uint sm = 0;
+
     void setup_gpio(void){
         for (int i = TFT_D0; i < TFT_D0 + 8; i++) {
             gpio_init(i);
@@ -341,7 +345,7 @@ class NT35510LCD {
         /* データ転送DMA (to LCD) */
         dma_config[0] = dma_channel_get_default_config(dma_channel[0]);
 #if defined(PIMORONI_PICO_PLUS_2)
-        channel_config_set_transfer_data_size(&dma_config[0], DMA_SIZE_32);
+        channel_config_set_transfer_data_size(&dma_config[0], DMA_SIZE_16);
         channel_config_set_bswap(&dma_config[0], true);
 #else
         channel_config_set_transfer_data_size(&dma_config[0], DMA_SIZE_16);
@@ -359,7 +363,7 @@ class NT35510LCD {
             (void *)&pio->txf[sm],  // 転送先
             (void *)transferbuffer,       // 転送元
 #if defined(PIMORONI_PICO_PLUS_2)
-            SCREEN_SIZE / 2,    // 転送回数
+            SCREEN_SIZE,    // 転送回数
 #else
             SCREEN_SIZE,
 #endif
@@ -676,6 +680,7 @@ class NT35510LCD {
             channel_pair[0] = 5; channel_pair[1] = 6;
             dma_first = &bitblt_dma3; dma_second = &bitblt_dma4;
         } else {
+            DBG("bitblt() busy.\n");
             return -1;
         }
 
@@ -723,6 +728,124 @@ class NT35510LCD {
         dma_channel_start(dma_channel[channel_pair[0]]);
 
         return 0;
+    }
+
+    void put_char(uint16_t x, uint16_t y, uint8_t *src_mono, uint16_t color) {
+        uint8_t *p = src_mono;
+        uint8_t b[8];
+
+        for(int i = 0; i < 2; i++) {
+            for(int j = 0; j < 16; j++) {
+                b[0] = *p & 0b00000001;
+                b[1] = *p & 0b00000010;
+                b[2] = *p & 0b00000100;
+                b[3] = *p & 0b00001000;
+                b[4] = *p & 0b00010000;
+                b[5] = *p & 0b00100000;
+                b[6] = *p & 0b01000000;
+                b[7] = *p & 0b10000000;
+
+                for(int k = 0; k < 8; k++) {
+                    if(b[k]) {
+                        this->pset(x + j, y + k + 8 * i, color, true);
+                    }
+                }
+                p++;
+            }
+        }
+    }
+
+    void put_char_scaled(uint16_t x, uint16_t y, uint8_t *src_mono, uint16_t color, uint8_t scale) {
+        uint8_t *p = src_mono;
+        uint8_t b[8];
+
+        for(int i = 0; i < 2; i++) {
+            for(int j = 0; j < 16; j++) {
+                b[0] = *p & 0b00000001;
+                b[1] = *p & 0b00000010;
+                b[2] = *p & 0b00000100;
+                b[3] = *p & 0b00001000;
+                b[4] = *p & 0b00010000;
+                b[5] = *p & 0b00100000;
+                b[6] = *p & 0b01000000;
+                b[7] = *p & 0b10000000;
+
+                for(int k = 0; k < 8; k++) {
+                    if(b[k]) {
+                        for (uint8_t sx = 0; sx < scale; sx++) {
+                            for (uint8_t sy = 0; sy < scale; sy++) {
+                                this->pset(x + j * scale + sx, y + (k + 8 * i) * scale + sy, color, true);
+                            }
+                        }
+                    }
+                }
+                p++;
+            }
+        }
+    }
+
+    void put_char_scaled_line(uint16_t x, uint16_t y, uint8_t *src_mono, uint16_t color, uint8_t scale) {
+        uint8_t *p = src_mono;
+        uint8_t intermediate[16][16];
+
+        // 中間データ作成
+        for (int i = 0; i < 2; i++) {
+            for (int j = 0; j < 16; j++) {
+                for (int k = 0; k < 8; k++) {
+                    intermediate[j][k + 8 * i] = (*p & (1 << k)) ? 1 : 0;
+                }
+                p++;
+            }
+        }
+
+        for (int oy = 0; oy < 16; oy++) {
+            for (int ox = 0; ox < 16; ox++) {
+                if (intermediate[ox][oy]) {
+                    int start_x = x + ox * scale;
+                    int start_y = y + oy * scale;
+
+                    // 右方向
+                    if (ox < 15 && intermediate[ox + 1][oy]) {
+                        for (int i = 0; i < scale; i++) {
+                            this->pset(start_x + i, start_y, color, true);
+                        }
+                    }
+                    // 下方向
+                    if (oy < 15 && intermediate[ox][oy + 1]) {
+                        for (int i = 0; i < scale; i++) {
+                            this->pset(start_x, start_y + i, color, true);
+                        }
+                    }
+                    // 斜め方向(右下)
+                    if (ox < 15 && oy < 15 && intermediate[ox + 1][oy + 1] && !intermediate[ox + 1][oy] && !intermediate[ox][oy + 1]) {
+                        for (int i = 0; i < scale; i++) {
+                            this->pset(start_x + i, start_y + i, color, true);
+                        }
+                    }
+                    // 斜め方向(右上)
+                    if (0 < ox && ox < 15 && oy < 15 && intermediate[ox - 1][oy + 1] && !intermediate[ox - 1][oy] && !intermediate[ox][oy + 1]) {
+                        for (int i = 0; i < scale; i++) {
+                            this->pset(start_x - i, start_y + i, color, true);
+                        }
+                    }
+
+                    this->pset(start_x, start_y, color, true);
+                }
+            }
+        }
+    }
+
+
+    int16_t blend_rgb565_half(uint16_t color) {
+        uint16_t r = (color >> 11) & 0x1F; // 赤5
+        uint16_t g = (color >> 5) & 0x3F;  // 緑6
+        uint16_t b = color & 0x1F;         // 青5
+
+        r = r >> 1;
+        g = g >> 1;
+        b = b >> 1;
+
+        return (r << 11) | (g << 5) | b;
     }
 
     void swapbuffer(void) {
