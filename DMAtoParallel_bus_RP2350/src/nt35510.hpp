@@ -730,12 +730,12 @@ class NT35510LCD {
         return 0;
     }
 
-    void put_char(uint16_t x, uint16_t y, uint8_t *src_mono, uint16_t color) {
+    void put_char(uint16_t x, uint16_t y, uint8_t *src_mono, uint16_t color, int width) {
         uint8_t *p = src_mono;
         uint8_t b[8];
 
         for(int i = 0; i < 2; i++) {
-            for(int j = 0; j < 16; j++) {
+            for(int j = 0; j < width; j++) {
                 b[0] = *p & 0b00000001;
                 b[1] = *p & 0b00000010;
                 b[2] = *p & 0b00000100;
@@ -755,12 +755,12 @@ class NT35510LCD {
         }
     }
 
-    void put_char_scaled(uint16_t x, uint16_t y, uint8_t *src_mono, uint16_t color, uint8_t scale) {
+    void put_char_scaled(uint16_t x, uint16_t y, uint8_t *src_mono, uint16_t color, uint8_t scale, int width) {
         uint8_t *p = src_mono;
         uint8_t b[8];
 
         for(int i = 0; i < 2; i++) {
-            for(int j = 0; j < 16; j++) {
+            for(int j = 0; j < width; j++) {
                 b[0] = *p & 0b00000001;
                 b[1] = *p & 0b00000010;
                 b[2] = *p & 0b00000100;
@@ -784,13 +784,13 @@ class NT35510LCD {
         }
     }
 
-    void put_char_scaled_line(uint16_t x, uint16_t y, uint8_t *src_mono, uint16_t color, uint8_t scale) {
+    void put_char_scaled_line(uint16_t x, uint16_t y, uint8_t *src_mono, uint16_t color, uint8_t scale, int width) {
         uint8_t *p = src_mono;
         uint8_t intermediate[16][16];
 
         // 中間データ作成
         for (int i = 0; i < 2; i++) {
-            for (int j = 0; j < 16; j++) {
+            for (int j = 0; j < width; j++) {
                 for (int k = 0; k < 8; k++) {
                     intermediate[j][k + 8 * i] = (*p & (1 << k)) ? 1 : 0;
                 }
@@ -799,13 +799,13 @@ class NT35510LCD {
         }
 
         for (int oy = 0; oy < 16; oy++) {
-            for (int ox = 0; ox < 16; ox++) {
+            for (int ox = 0; ox < width; ox++) {
                 if (intermediate[ox][oy]) {
                     int start_x = x + ox * scale;
                     int start_y = y + oy * scale;
 
                     // 右方向
-                    if (ox < 15 && intermediate[ox + 1][oy]) {
+                    if (ox < (width - 1) && intermediate[ox + 1][oy]) {
                         for (int i = 0; i < scale; i++) {
                             this->pset(start_x + i, start_y, color, true);
                         }
@@ -817,13 +817,13 @@ class NT35510LCD {
                         }
                     }
                     // 斜め方向(右下)
-                    if (ox < 15 && oy < 15 && intermediate[ox + 1][oy + 1] && !intermediate[ox + 1][oy] && !intermediate[ox][oy + 1]) {
+                    if (ox < (width - 1) && oy < 15 && intermediate[ox + 1][oy + 1] && !intermediate[ox + 1][oy] && !intermediate[ox][oy + 1]) {
                         for (int i = 0; i < scale; i++) {
                             this->pset(start_x + i, start_y + i, color, true);
                         }
                     }
                     // 斜め方向(右上)
-                    if (0 < ox && ox < 15 && oy < 15 && intermediate[ox - 1][oy + 1] && !intermediate[ox - 1][oy] && !intermediate[ox][oy + 1]) {
+                    if (0 < ox && ox < (width - 1) && oy < 15 && intermediate[ox - 1][oy + 1] && !intermediate[ox - 1][oy] && !intermediate[ox][oy + 1]) {
                         for (int i = 0; i < scale; i++) {
                             this->pset(start_x - i, start_y + i, color, true);
                         }

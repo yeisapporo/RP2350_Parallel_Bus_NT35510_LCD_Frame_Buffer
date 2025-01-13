@@ -36,6 +36,7 @@ public:
     } send_buf;
     #pragma unpack
     uint8_t recv_buf[32];
+    int width;
 
     SPIClassRP2040 *p_spi = &SPI1;
     pin_size_t _rx;
@@ -334,16 +335,6 @@ public:
         return false;
     }
 
-    uint16_t utf8_to_kuten(uint8_t *u8c, uint8_t *ku, uint8_t *ten) {
-        uint32_t utf32_char;
-        uint32_t utf16_char;
-
-        utf8_to_utf32(u8c, &utf32_char);
-        utf32_to_uft16(utf32_char, (uint16_t *)&utf16_char);        
-        // テーブルを引いて句点を求める(2分探索など)。
-        return get_kuten(utf16_char, ku, ten);
-    }
-
     uint32_t kuten_rom_addr(uint8_t ku, uint8_t ten) {
         uint32_t ret = 0;
         if(ku >=1 && ku <= 15 && ten >=1 && ten <= 94) {
@@ -360,6 +351,15 @@ public:
         return ret;
     }
 
+    // 算出したアドレスがズレているかも？
+    uint32_t ascii_rom_addr(uint8_t ascii) {
+        if(ascii <= 0x7f) {
+            return (uint32_t)(ascii - 0x20) * 16 + 255968;
+        } else {
+            return (uint32_t)ascii * 16 + 257504;
+        }
+    }
+
     void load_by_kuten(uint8_t ku, uint8_t ten) {
         this->send_buf.cmd = 0x03;
         this->send_buf.addr = this->swap_endian_32(this->kuten_rom_addr(ku, ten)) >> 8;
@@ -372,6 +372,37 @@ public:
         this->p_spi->endTransaction();
     }
 
+    void load_by_addr(uint32_t addr) {
+        this->send_buf.cmd = 0x03;
+        this->send_buf.addr = this->swap_endian_32(addr) >> 8;
 
+        this->p_spi->beginTransaction(spisettings);
+        digitalWrite(this->_cs, LOW);
+        this->p_spi->transfer(this->send_buf.uint8, nullptr, sizeof(uint32_t));
+        this->p_spi->transfer(nullptr, this->recv_buf, sizeof(this->recv_buf));
+        digitalWrite(this->_cs, HIGH);
+        this->p_spi->endTransaction();
+    }
+
+    // 【今後の対応】
+    // ASCII 0x00 - 0xff対応(半角文字)
+    uint8_t load_utf8_char(uint8_t *u8c, uint8_t *ku, uint8_t *ten, uint8_t *ascii) {
+        uint32_t utf32_char;
+        uint32_t utf16_char;
+        uint8_t * p_ku = ku;
+        uint8_t * p_ten = ten;
+
+        this->utf8_to_utf32(u8c, &utf32_char);
+        this->utf32_to_uft16(utf32_char, (uint16_t *)&utf16_char);
+        if(0x00 <= utf16_char && utf16_char <= 0xff) {
+            this->load_by_addr(this->ascii_rom_addr((uint8_t)utf16_char));
+            return 8;
+        } else {
+            // テーブルを引いて句点を求める(2分探索など)。
+            this->get_kuten(utf16_char, p_ku, p_ten);
+            this->load_by_kuten(*p_ku, *p_ten);
+            return 16;
+        }     
+    }
 
 };

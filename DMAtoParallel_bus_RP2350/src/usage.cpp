@@ -34,11 +34,12 @@ void setup()
 
 #if 1
     jis_rom.init();
-    uint8_t kanji[] = "蝶";
+    uint8_t kanji[] = "鸛";
     uint8_t ku;
     uint8_t ten;
-    jis_rom.utf8_to_kuten(kanji, &ku, &ten);
-    jis_rom.load_by_kuten(ku, ten);
+    uint8_t ascii;
+    jis_rom.width = jis_rom.load_utf8_char(kanji, &ku, &ten, &ascii);
+    //jis_rom.load_by_kuten(ku, ten);
 #endif
 
     psram_size = rp2040.getPSRAMSize();
@@ -207,10 +208,10 @@ void loop() {
     }
 
     // 漢字表示テスト
-    lcd.put_char(0, 400, &jis_rom.recv_buf[0], rgb(0, 255, 0));
-    lcd.put_char_scaled(32, 400, &jis_rom.recv_buf[0], rgb(255, 0, 0), 2);
-    lcd.put_char_scaled(80, 400, &jis_rom.recv_buf[0], rgb(255, 255, 0), 4);
-    lcd.put_char_scaled_line(160, 400, &jis_rom.recv_buf[0], rgb(255, 255, 255), 4);
+    lcd.put_char(0, 400, &jis_rom.recv_buf[0], rgb(0, 255, 0), jis_rom.width);
+    lcd.put_char_scaled(32, 400, &jis_rom.recv_buf[0], rgb(255, 0, 0), 2, jis_rom.width);
+    lcd.put_char_scaled(80, 400, &jis_rom.recv_buf[0], rgb(255, 255, 0), 4, jis_rom.width);
+    lcd.put_char_scaled_line(160, 400, &jis_rom.recv_buf[0], rgb(255, 255, 255), 4, jis_rom.width);
 
     first_draw_done = true;
     cnt--;if(cnt < 0){cnt = 15;}
