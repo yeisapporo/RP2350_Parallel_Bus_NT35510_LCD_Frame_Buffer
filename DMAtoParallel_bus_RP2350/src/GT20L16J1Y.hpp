@@ -1,5 +1,6 @@
 #pragma once
 #include <SPI.h>
+#include "utf16_kuten.h"
 
 // mode 0: positive pulse, front latch, back shift
 SPISettings spisettings(300000, MSBFIRST, SPI_MODE0);
@@ -305,15 +306,42 @@ public:
         return true;
     }
 
-    uint16_t utf8_to_kuten(uint8_t *u8c) {
+    const size_t utf16_kuten_table_size = sizeof(utf16_kuten_table) / sizeof(utf16_kuten_table[0]);
+    bool get_kuten(uint16_t utf16, uint8_t *ku, uint8_t *ten) {
+        size_t left = 0;
+        size_t right = utf16_kuten_table_size - 1;
+
+        // 二分探索
+        while (left <= right) {
+            size_t mid = (left + right) / 2;
+            uint16_t mid_value = utf16_kuten_table[mid][0];
+
+            if (utf16 == mid_value) {
+                // 一致する値を見つけた場合
+                *ku = (uint8_t)utf16_kuten_table[mid][1];
+                *ten = (uint8_t)utf16_kuten_table[mid][2];
+                return true;
+            } else if (utf16 < mid_value) {
+                // 左側を探索
+                right = mid - 1;
+            } else {
+                // 右側を探索
+                left = mid + 1;
+            }
+        }
+
+        // 見つからなかった場合
+        return false;
+    }
+
+    uint16_t utf8_to_kuten(uint8_t *u8c, uint8_t *ku, uint8_t *ten) {
         uint32_t utf32_char;
         uint32_t utf16_char;
-        uint16_t kuten = 0;
+
         utf8_to_utf32(u8c, &utf32_char);
-        utf32_to_uft16(utf32_char, (uint16_t *)&utf16_char);
-        
+        utf32_to_uft16(utf32_char, (uint16_t *)&utf16_char);        
         // テーブルを引いて句点を求める(2分探索など)。
-        return kuten;
+        return get_kuten(utf16_char, ku, ten);
     }
 
     uint32_t kuten_rom_addr(uint8_t ku, uint8_t ten) {

@@ -34,7 +34,11 @@ void setup()
 
 #if 1
     jis_rom.init();
-    jis_rom.load_by_kuten(54, 59);  // 巍
+    uint8_t kanji[] = "蝶";
+    uint8_t ku;
+    uint8_t ten;
+    jis_rom.utf8_to_kuten(kanji, &ku, &ten);
+    jis_rom.load_by_kuten(ku, ten);
 #endif
 
     psram_size = rp2040.getPSRAMSize();
