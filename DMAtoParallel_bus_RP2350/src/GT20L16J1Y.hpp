@@ -3,7 +3,7 @@
 #include "utf16_kuten.h"
 
 // mode 0: positive pulse, front latch, back shift
-SPISettings spisettings(300000, MSBFIRST, SPI_MODE0);
+SPISettings spisettings(2500000, MSBFIRST, SPI_MODE0);
 
 typedef struct _Mapping {
         uint16_t utf16;  // UTF-16コードポイント
@@ -247,7 +247,7 @@ public:
     }
 
     /* ★ */
-    bool utf8_to_utf32(uint8_t *u8c, uint32_t *u32c /* out */) {
+    bool utf8_to_utf32(uint8_t *u8c, uint32_t *u32c /* out */, uint8_t *bytes /* out */) {
         int cnt = count_utf8_bytes(u8c[0]);
 
         switch(cnt) {
@@ -290,6 +290,7 @@ public:
             default:
                 return false;
         }
+        *bytes = cnt;
         return true; /* success */
     }    
 
@@ -386,13 +387,13 @@ public:
 
     // 【今後の対応】
     // ASCII 0x00 - 0xff対応(半角文字)
-    uint8_t load_utf8_char(uint8_t *u8c, uint8_t *ku, uint8_t *ten, uint8_t *ascii) {
+    uint8_t load_utf8_char(uint8_t *u8c, uint8_t *ku, uint8_t *ten, uint8_t *ascii, uint8_t *bytes) {
         uint32_t utf32_char;
         uint32_t utf16_char;
         uint8_t * p_ku = ku;
         uint8_t * p_ten = ten;
 
-        this->utf8_to_utf32(u8c, &utf32_char);
+        this->utf8_to_utf32(u8c, &utf32_char, bytes);
         this->utf32_to_uft16(utf32_char, (uint16_t *)&utf16_char);
         if(0x00 <= utf16_char && utf16_char <= 0xff) {
             this->load_by_addr(this->ascii_rom_addr((uint8_t)utf16_char));

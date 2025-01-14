@@ -27,19 +27,21 @@ inline uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
     return (r >> 3) << 11 | (g >> 2) << 5 | (b >> 3);
 }
 
-void setup()
-{
+void setup() {
     volatile int psram_size;
     setup_debug_serial_out();
 
 #if 1
     jis_rom.init();
+#if 0
     uint8_t kanji[] = "鸛";
     uint8_t ku;
     uint8_t ten;
     uint8_t ascii;
-    jis_rom.width = jis_rom.load_utf8_char(kanji, &ku, &ten, &ascii);
+    uint8_t bytes;
+    jis_rom.width = jis_rom.load_utf8_char(kanji, &ku, &ten, &ascii, &bytes);
     //jis_rom.load_by_kuten(ku, ten);
+#endif
 #endif
 
     psram_size = rp2040.getPSRAMSize();
@@ -127,6 +129,33 @@ const uint8_t field_map[32][16] = {
 
 };
 
+void put_utf8(const char *str, uint16_t x, uint16_t y, uint16_t color, uint8_t scale) {
+    uint8_t width;
+    uint8_t ku;
+    uint8_t ten;
+    uint8_t ascii;
+    uint8_t bytes;
+    while(*str != '\0') {
+        width = jis_rom.load_utf8_char((uint8_t *)str, &ku, &ten, &ascii, &bytes);
+        switch(width) {
+            case 8:
+                lcd.put_char_scaled(x, y, &jis_rom.recv_buf[0], color, scale, width);
+                x += width * scale;
+                str++;
+                break;
+            case 16:
+                lcd.put_char_scaled_line(x, y, &jis_rom.recv_buf[0], color, scale, width);
+                x += width * scale;
+                for(int i = 0; i < bytes; i++) {
+                    str++;
+                }
+                break;
+            default:
+                break;
+        }
+    }
+}
+
 bool loop_started = false;
 void loop() {
     loop_started = true;
@@ -144,6 +173,7 @@ void loop() {
 
 // drawing test
     static int cnt = 15;
+    static int scroll_cnt = 0;
 #if 0
     for(int i = 0; i < 8; i++) {
         lcd.line(384 + random(416), random(480), 384 + random(416), random(480), rgb(random(128), random(128), random(128)), true);
@@ -179,9 +209,9 @@ void loop() {
             gpio_set_function(i, GPIO_FUNC_SIO);
             gpio_put(i, false);
         } 
-        #if 0
+        #if 1
         lcd.sendCommand(0xff00, {0xaa,0x55,0x25,0x01}); // enable page ??.
-        lcd.sendCommand(0x3900);    // idle mode on [OK]
+        //lcd.sendCommand(0x3700, {0, 255});
         #else
         // control other devices.
         //sleep_us(50);        
@@ -208,13 +238,16 @@ void loop() {
     }
 
     // 漢字表示テスト
-    lcd.put_char(0, 400, &jis_rom.recv_buf[0], rgb(0, 255, 0), jis_rom.width);
-    lcd.put_char_scaled(32, 400, &jis_rom.recv_buf[0], rgb(255, 0, 0), 2, jis_rom.width);
-    lcd.put_char_scaled(80, 400, &jis_rom.recv_buf[0], rgb(255, 255, 0), 4, jis_rom.width);
-    lcd.put_char_scaled_line(160, 400, &jis_rom.recv_buf[0], rgb(255, 255, 255), 4, jis_rom.width);
+    //lcd.put_char(0, 400, &jis_rom.recv_buf[0], rgb(0, 255, 0), jis_rom.width);
+    //lcd.put_char_scaled(32, 400, &jis_rom.recv_buf[0], rgb(255, 0, 0), 2, jis_rom.width);
+    //lcd.put_char_scaled(80, 400, &jis_rom.recv_buf[0], rgb(255, 255, 0), 4, jis_rom.width);
+    //lcd.put_char_scaled_line(160, 400, &jis_rom.recv_buf[0], rgb(255, 255, 255), 4, jis_rom.width);
+    put_utf8("魑魅魍魎が跳梁跋扈する。", 0, 400, lcd.rgb(0, 255, 0), 4);
 
     first_draw_done = true;
-    cnt--;if(cnt < 0){cnt = 15;}
+    cnt--; if(cnt < 0) {cnt = 15;}
+    scroll_cnt++; if(scroll_cnt > 480) {scroll_cnt = 0;}
+
     lcd.swapbuffer();    
     //sleep_us(10); // 適当に遅延
 }

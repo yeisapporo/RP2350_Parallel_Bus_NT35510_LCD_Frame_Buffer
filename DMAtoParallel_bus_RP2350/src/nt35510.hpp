@@ -223,9 +223,11 @@ class NT35510LCD {
 #define YOKO_GAMEN
         sendCommand(0x3600, {0b00100001});    // MADCTL display direction
         sendCommand(0x3a00, {0b01010100});    // 16bit-16bit (two commands are required)
+        sendCommand(0x1200);                   // partial mode on
         sendCommand(0x2a00, {0, 0, 0x03, 0x1f});  // long side width: 800
         sendCommand(0x2b00, {0, 0, 0x02, 0x57});  // short side width: 600(0x257) ? for 480(0x1df)
-        sendCommand(0x3000, {0, 0, 0x03, 0x1F});
+        //sendCommand(0x3000, {0, 0, 0x03, 0x1F});
+        //sendCommand(0x3000, {7, 0xdf, 0x02, 0xdf});
         sendCommand(0x3500);    // tearing effect line ON
         sendCommand(0x3a00, {0b01010101});    // 16bit-16bit (two commands are required)
 #else
