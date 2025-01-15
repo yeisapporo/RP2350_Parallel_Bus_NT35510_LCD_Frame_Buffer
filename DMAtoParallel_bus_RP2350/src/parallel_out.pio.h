@@ -10,7 +10,7 @@
 
 #define parallel_out_wrap_target 0
 #if defined(PIMORONI_PICO_PLUS_2)
-#define parallel_out_wrap 12 //19
+#define parallel_out_wrap 6 //19
 #else
 #define parallel_out_wrap 14
 #endif
@@ -48,12 +48,14 @@ static const uint16_t parallel_out_program_instructions[] = {
     0x6008, //  3: out    pins, 8
     0xe000, //  4: set    pins, 0
     0xe001, //  5: set    pins, 1
+    #if 0
     0x6008, //  3: out    pins, 8
     0xe000, //  4: set    pins, 0
     0xe001, //  5: set    pins, 1
     0x6008, //  3: out    pins, 8
     0xe000, //  4: set    pins, 0
     0xe001, //  5: set    pins, 1
+    #endif
 #endif
 
             //     .wrap
@@ -84,7 +86,7 @@ static const uint16_t parallel_out_program_instructions[] = {
 static const struct pio_program parallel_out_program = {
     .instructions = parallel_out_program_instructions,
 #if defined(PIMORONI_PICO_PLUS_2)
-    .length = 13, //20,
+    .length = 7, //20,
 #else
     .length = 15,
 #endif
