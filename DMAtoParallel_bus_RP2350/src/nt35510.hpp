@@ -5,6 +5,14 @@
 ///////////////////////////////////////////////////////////////////////////////////////////
 #define PIMORONI_PICO_PLUS_2
 
+#define TFT_D0 0       // GPIO0〜7をデータバスに使用
+#define TFT_CS 18
+#define TFT_RS 8
+#define TFT_RD 9
+#define TFT_RESET 10
+#define TFT_WR 11
+#define TFT_DEBUG_SIG 28    // 漢字ROM接続時は他ピンに変更すること。
+
 #include <Arduino.h>
 #include "pico/stdlib.h"
 #include "hardware/pio.h"
@@ -20,14 +28,6 @@
 //#include "image004.h"
 #include "data.h"
 #endif
-
-#define TFT_D0 0       // GPIO0〜7をデータバスに使用
-#define TFT_CS 18
-#define TFT_RS 8
-#define TFT_RD 9
-#define TFT_RESET 10
-#define TFT_WR 11
-#define TFT_DEBUG_SIG 28    // 漢字ROM接続時は他ピンに変更すること。
 
 #if defined(PIMORONI_PICO_PLUS_2)
 #define SCREEN_SIZE 800*480   // 画面サイズ
@@ -256,9 +256,8 @@ class NT35510LCD {
         for (int i = TFT_D0; i < TFT_D0 + 8; i++) {
             pio_gpio_init(pio, i);
         }
-        // WR, DEGUG_SIG を PIO に設定
+        // WRを PIO に設定
         pio_gpio_init(pio, TFT_WR);
-        //pio_gpio_init(pio, TFT_DEBUG_SIG);
 
         // ピン方向の設定
         pio_sm_set_consecutive_pindirs(pio, sm, TFT_D0, 8, true); // データピン出力
@@ -270,7 +269,7 @@ class NT35510LCD {
 #if 0
         sm_config_set_set_pins(&config, TFT_WR, 1);      // GP11をSET命令で操作対象
 #else
-        sm_config_set_set_pins(&config, TFT_WR, 2);      // GP11ほかをSET命令で操作対象
+        sm_config_set_sideset_pins(&config, TFT_WR);
 #endif
         sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_TX);
 #if defined(PIMORONI_PICO_PLUS_2)

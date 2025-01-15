@@ -62,106 +62,6 @@ public:
                 ((x & 0xFF000000) >> 24));
     }
 
-#if 0
-    int utf8_to_utf16(const uint8_t *utf8_data, size_t utf8_len, uint16_t *utf16_data, size_t utf16_max_len) {
-        size_t utf16_index = 0;
-
-        for (size_t i = 0; i < utf8_len; ) {
-            uint32_t code_point = 0;
-
-            // 1バイト目を解析
-            uint8_t byte1 = utf8_data[i];
-            if (byte1 <= 0x7F) {
-                // 1バイト文字 (ASCII)
-                code_point = byte1;
-                i += 1;
-            } else if ((byte1 & 0xE0) == 0xC0) {
-                // 2バイト文字
-                if (i + 1 >= utf8_len) return -1; // 不完全なシーケンス
-                uint8_t byte2 = utf8_data[i + 1];
-                if ((byte2 & 0xC0) != 0x80) return -1; // 無効なバイト
-
-                code_point = ((byte1 & 0x1F) << 6) | (byte2 & 0x3F);
-                i += 2;
-            } else if ((byte1 & 0xF0) == 0xE0) {
-                // 3バイト文字
-                if (i + 2 >= utf8_len) return -1; // 不完全なシーケンス
-                uint8_t byte2 = utf8_data[i + 1];
-                uint8_t byte3 = utf8_data[i + 2];
-                if ((byte2 & 0xC0) != 0x80 || (byte3 & 0xC0) != 0x80) return -1; // 無効なバイト
-
-                code_point = ((byte1 & 0x0F) << 12) | ((byte2 & 0x3F) << 6) | (byte3 & 0x3F);
-                i += 3;
-            } else if ((byte1 & 0xF8) == 0xF0) {
-                // 4バイト文字
-                if (i + 3 >= utf8_len) return -1; // 不完全なシーケンス
-                uint8_t byte2 = utf8_data[i + 1];
-                uint8_t byte3 = utf8_data[i + 2];
-                uint8_t byte4 = utf8_data[i + 3];
-                if ((byte2 & 0xC0) != 0x80 || (byte3 & 0xC0) != 0x80 || (byte4 & 0xC0) != 0x80) return -1; // 無効なバイト
-
-                code_point = ((byte1 & 0x07) << 18) | ((byte2 & 0x3F) << 12) | ((byte3 & 0x3F) << 6) | (byte4 & 0x3F);
-                i += 4;
-            } else {
-                // 無効なUTF-8バイト
-                return -1;
-            }
-
-            // コードポイントをUTF-16に変換
-            if (code_point <= 0xFFFF) {
-                // BMP (Basic Multilingual Plane)
-                if (utf16_index >= utf16_max_len) return -2; // バッファ不足
-                utf16_data[utf16_index++] = (uint16_t)code_point;
-            } else if (code_point <= 0x10FFFF) {
-                // サロゲートペア
-                if (utf16_index + 2 > utf16_max_len) return -2; // バッファ不足
-                code_point -= 0x10000;
-                utf16_data[utf16_index++] = (uint16_t)((code_point >> 10) + 0xD800); // 上位サロゲート
-                utf16_data[utf16_index++] = (uint16_t)((code_point & 0x3FF) + 0xDC00); // 下位サロゲート
-            } else {
-                // 無効なコードポイント
-                return -1;
-            }
-        }
-
-        return utf16_index; // 変換後のUTF-16データのサイズを返す
-    }
-#endif
-
-#if 0
-    int utf16_to_shift_jis(uint16_t *utf16_data, size_t utf16_len, uint8_t *shift_jis_data, size_t max_len) {
-        size_t out_index = 0;
-
-        for (size_t i = 0; i < utf16_len; i++) {
-            uint16_t utf16_char = utf16_data[i];
-            int found = 0;
-
-            for (size_t j = 0; j < map_size; j++) {
-                if (utf16_to_shift_jis_map[j].utf16 == utf16_char) {
-                    uint16_t sjis_char = utf16_to_shift_jis_map[j].shift_jis;
-
-                    if (sjis_char < 0x100) {
-                        if (out_index + 1 > max_len) return -1;
-                        shift_jis_data[out_index++] = (uint8_t)sjis_char;
-                    } else {
-                        if (out_index + 2 > max_len) return -1;
-                        shift_jis_data[out_index++] = (uint8_t)(sjis_char >> 8); // h
-                        shift_jis_data[out_index++] = (uint8_t)(sjis_char & 0xFF); // l
-                    }
-                    found = 1;
-                    break;
-                }
-            }
-
-            if (!found) {
-                return -2; // マッピングなし
-            }
-        }
-
-        return out_index; // 変換後のバイト数
-    }
-#endif
-
     uint16_t jis2kuten(uint16_t jis) {
         return jis - 0x2020;
     }
@@ -169,62 +69,6 @@ public:
     uint16_t kuten2jis(uint16_t kuten) {
         return kuten + 0x2020;
     }
-
-#if 0
-    uint16_t jis2sjis(uint16_t jis) {
-        uint16_t h = jis >> 8;
-        uint16_t l = jis & 0xff;
-    
-        if (h & 1) {
-            if (l < 0x60) {
-                l += 0x1f;
-            } else {
-                l += 0x20;
-            }
-        } else {
-            l += 0x7e;
-        }
-
-        if (h < 0x5f) {
-            h = (h + 0xe1) >> 1;
-        }else{
-            h = (h + 0x161) >> 1;
-        }
-
-        return h << 8 | l;
-    }
-#endif
-
-#if 0
-    uint16_t sjis2jis(uint16_t sjis) {
-        uint16_t h = sjis >> 8;
-        uint16_t l = sjis & 0xff;
-
-        if (h <= 0x9f) {
-            if (l < 0x9f) {
-                h = (h << 1) - 0xe1;
-            } else {
-                h = (h << 1) - 0xe0;
-            }
-        } else {
-            if (l < 0x9f) {
-                h = (h << 1) - 0x161;
-            } else {
-                h = (h << 1) - 0x160;
-            }
-        }
-    
-        if (l < 0x7f) {
-            l -= 0x1f;
-        } else if (l < 0x9f) {
-            l -= 0x20;
-        } else {
-            l -= 0x7e;
-        }
-
-        return h << 8 | l;
-    }
-#endif
 
     /* ★ referred to https://qiita.com/benikabocha/items/e943deb299d0f816f161 */
     /* ★ */
@@ -352,7 +196,6 @@ public:
         return ret;
     }
 
-    // 算出したアドレスがズレているかも？
     uint32_t ascii_rom_addr(uint8_t ascii) {
         if(ascii <= 0x7f) {
             return (uint32_t)(ascii - 0x20) * 16 + 255968;

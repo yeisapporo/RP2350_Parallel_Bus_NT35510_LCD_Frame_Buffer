@@ -33,15 +33,6 @@ void setup() {
 
 #if 1
     jis_rom.init();
-#if 0
-    uint8_t kanji[] = "鸛";
-    uint8_t ku;
-    uint8_t ten;
-    uint8_t ascii;
-    uint8_t bytes;
-    jis_rom.width = jis_rom.load_utf8_char(kanji, &ku, &ten, &ascii, &bytes);
-    //jis_rom.load_by_kuten(ku, ten);
-#endif
 #endif
 
     psram_size = rp2040.getPSRAMSize();
@@ -75,7 +66,8 @@ void setup() {
     sleep_us(1000);
     dma_channel_wait_for_finish_blocking(dma_channel[1]);
     dma_channel_start(dma_channel[0]);
-    
+
+    //sleep_ms(2500);
 }
 
 const uint16_t map_table[][2] = {
@@ -146,9 +138,7 @@ void put_utf8(const char *str, uint16_t x, uint16_t y, uint16_t color, uint8_t s
             case 16:
                 lcd.put_char_scaled_line(x, y, &jis_rom.recv_buf[0], color, scale, width);
                 x += width * scale;
-                for(int i = 0; i < bytes; i++) {
-                    str++;
-                }
+                str += bytes;
                 break;
             default:
                 break;
@@ -198,41 +188,7 @@ void loop() {
 
     // パラレルバス共有お試し
     // YM2203C制御用にD0-D7を明け渡すのは止める。描画が乱れるため。
-    // YM2203Cはシリアルバスで制御することを検討。
-    #if 0
-    {
-    digitalWrite(TFT_DEBUG_SIG, HIGH);
-    digitalWrite(TFT_DEBUG_SIG, LOW);
-        //dma_channel_wait_for_finish_blocking(dma_channel[0]);
-        pio_sm_set_enabled(lcd.pio, lcd.sm, false);
-        for (int i = TFT_D0; i < TFT_D0 + 8; i++) {
-            gpio_set_function(i, GPIO_FUNC_SIO);
-            gpio_put(i, false);
-        } 
-        #if 1
-        lcd.sendCommand(0xff00, {0xaa,0x55,0x25,0x01}); // enable page ??.
-        //lcd.sendCommand(0x3700, {0, 255});
-        #else
-        // control other devices.
-        //sleep_us(50);        
-        #endif
-        lcd.sendCommand(0xff00, {0xaa,0x55,0x25,0x01}); // enable page ??.
-        lcd.sendCommand(0x3c00);    // memory write re-start.
-        
-        for (int i = TFT_D0; i < TFT_D0 + 8; i++) {
-            //pio_gpio_init(lcd.pio, i);
-            gpio_set_function(i, GPIO_FUNC_PIO0);
-        } 
-        //pio_gpio_init(lcd.pio, TFT_WR);
-        gpio_set_function(TFT_WR, GPIO_FUNC_PIO0);
-        
-        pio_sm_set_enabled(lcd.pio, lcd.sm, true);
-        dma_channel_start(dma_channel[0]);
-    //lcd.setup_pio(lcd.pio, lcd.sm, pio_add_program(lcd.pio, &parallel_out_program));
-    digitalWrite(TFT_DEBUG_SIG, HIGH);
-    digitalWrite(TFT_DEBUG_SIG, LOW);
-    }
-    #endif
+
             }
         }
     }
