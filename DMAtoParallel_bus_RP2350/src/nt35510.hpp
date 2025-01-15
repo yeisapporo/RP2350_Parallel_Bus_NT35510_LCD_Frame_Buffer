@@ -731,7 +731,7 @@ class NT35510LCD {
         return 0;
     }
 
-    void put_char(uint16_t x, uint16_t y, uint8_t *src_mono, uint16_t color, int width) {
+    void put_char(uint16_t x, uint16_t y, uint8_t *src_mono, uint16_t color, int width, bool both) {
         uint8_t *p = src_mono;
         uint8_t b[8];
 
@@ -748,7 +748,7 @@ class NT35510LCD {
 
                 for(int k = 0; k < 8; k++) {
                     if(b[k]) {
-                        this->pset(x + j, y + k + 8 * i, color, true);
+                        this->pset(x + j, y + k + 8 * i, color, both);
                     }
                 }
                 p++;
@@ -756,7 +756,7 @@ class NT35510LCD {
         }
     }
 
-    void put_char_scaled(uint16_t x, uint16_t y, uint8_t *src_mono, uint16_t color, uint8_t scale, int width) {
+    void put_char_scaled(uint16_t x, uint16_t y, uint8_t *src_mono, uint16_t color, uint8_t scale, int width, bool both) {
         uint8_t *p = src_mono;
         uint8_t b[8];
 
@@ -775,7 +775,7 @@ class NT35510LCD {
                     if(b[k]) {
                         for (uint8_t sx = 0; sx < scale; sx++) {
                             for (uint8_t sy = 0; sy < scale; sy++) {
-                                this->pset(x + j * scale + sx, y + (k + 8 * i) * scale + sy, color, true);
+                                this->pset(x + j * scale + sx, y + (k + 8 * i) * scale + sy, color, both);
                             }
                         }
                     }
@@ -785,7 +785,7 @@ class NT35510LCD {
         }
     }
 
-    void put_char_scaled_line(uint16_t x, uint16_t y, uint8_t *src_mono, uint16_t color, uint8_t scale, int width) {
+    void put_char_scaled_line(uint16_t x, uint16_t y, uint8_t *src_mono, uint16_t color, uint8_t scale, int width, bool both) {
         uint8_t *p = src_mono;
         uint8_t intermediate[16][16];
 
@@ -808,29 +808,29 @@ class NT35510LCD {
                     // 右方向
                     if (ox < (width - 1) && intermediate[ox + 1][oy]) {
                         for (int i = 0; i < scale; i++) {
-                            this->pset(start_x + i, start_y, color, true);
+                            this->pset(start_x + i, start_y, color, both);
                         }
                     }
                     // 下方向
                     if (oy < 15 && intermediate[ox][oy + 1]) {
                         for (int i = 0; i < scale; i++) {
-                            this->pset(start_x, start_y + i, color, true);
+                            this->pset(start_x, start_y + i, color, both);
                         }
                     }
                     // 斜め方向(右下)
                     if (ox < (width - 1) && oy < 15 && intermediate[ox + 1][oy + 1] && !intermediate[ox + 1][oy] && !intermediate[ox][oy + 1]) {
                         for (int i = 0; i < scale; i++) {
-                            this->pset(start_x + i, start_y + i, color, true);
+                            this->pset(start_x + i, start_y + i, color, both);
                         }
                     }
                     // 斜め方向(右上)
                     if (0 < ox && ox < (width - 1) && oy < 15 && intermediate[ox - 1][oy + 1] && !intermediate[ox - 1][oy] && !intermediate[ox][oy + 1]) {
                         for (int i = 0; i < scale; i++) {
-                            this->pset(start_x - i, start_y + i, color, true);
+                            this->pset(start_x - i, start_y + i, color, both);
                         }
                     }
 
-                    this->pset(start_x, start_y, color, true);
+                    this->pset(start_x, start_y, color, both);
                 }
             }
         }

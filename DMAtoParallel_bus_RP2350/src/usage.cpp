@@ -121,7 +121,7 @@ const uint8_t field_map[32][16] = {
 
 };
 
-void put_utf8(const char *str, uint16_t x, uint16_t y, uint16_t color, uint8_t scale) {
+void put_utf8(const char *str, uint16_t x, uint16_t y, uint16_t color, uint8_t scale, bool both) {
     uint8_t width;
     uint8_t ku;
     uint8_t ten;
@@ -131,12 +131,12 @@ void put_utf8(const char *str, uint16_t x, uint16_t y, uint16_t color, uint8_t s
         width = jis_rom.load_utf8_char((uint8_t *)str, &ku, &ten, &ascii, &bytes);
         switch(width) {
             case 8:
-                lcd.put_char_scaled(x, y, &jis_rom.recv_buf[0], color, scale, width);
+                lcd.put_char_scaled_line(x, y, &jis_rom.recv_buf[0], color, scale, width, both);
                 x += width * scale;
                 str++;
                 break;
             case 16:
-                lcd.put_char_scaled_line(x, y, &jis_rom.recv_buf[0], color, scale, width);
+                lcd.put_char_scaled_line(x, y, &jis_rom.recv_buf[0], color, scale, width, both);
                 x += width * scale;
                 str += bytes;
                 break;
@@ -173,21 +173,30 @@ void loop() {
 #endif
 
     static bool first_draw_done = false;
+
+    //lcd.clsfast(0);
+    lcd.boxfill(0, 0, 799, 15, lcd.rgb(255, 0, 0), false);
+    lcd.boxfill(0, 0, 16, 415, lcd.rgb(255, 0, 0), false);
+    lcd.boxfill(0, 400, 799, 415, lcd.rgb(255, 0, 0), false);
+    lcd.boxfill(784, 0, 799, 415, lcd.rgb(255, 0, 0), false);
+
     for(int y = 0; y < 16; y++) {
-        for(int x = 0; x < 16; x++) {
+        for(int x = 0; x < 32; x++) {
             uint16_t old_chip_map_y = abs(y + cnt + 1) % 16;
-            uint16_t old_table_x = map_table[field_map[old_chip_map_y][x]][1];
-            uint16_t old_table_y = map_table[field_map[old_chip_map_y][x]][0];
+            uint16_t old_table_x = map_table[field_map[old_chip_map_y][x % 16]][1];
+            uint16_t old_table_y = map_table[field_map[old_chip_map_y][x % 16]][0];
             uint16_t chip_map_y = abs(y + cnt) % 16;
-            uint16_t table_x = map_table[field_map[chip_map_y][x]][1];
-            uint16_t table_y = map_table[field_map[chip_map_y][x]][0];
+            uint16_t table_x = map_table[field_map[chip_map_y][x % 16]][1];
+            uint16_t table_y = map_table[field_map[chip_map_y][x % 16]][0];
             // Only actually draw if the chip about to be drawn is different than the chip
             // already in the drawing destination.
             if(!first_draw_done || (old_table_y != table_y || old_table_x != table_x)) {
-                lcd.bitblt(chip_map, x * 24, y * 24, table_x, table_y, 24, 24, true);
+                lcd.bitblt(chip_map, x * 24 + 16, y * 24 + 16, table_x, table_y, 24, 24, true);
 
     // パラレルバス共有お試し
-    // YM2203C制御用にD0-D7を明け渡すのは止める。描画が乱れるため。
+                {
+
+                }
 
             }
         }
@@ -198,11 +207,13 @@ void loop() {
     //lcd.put_char_scaled(32, 400, &jis_rom.recv_buf[0], rgb(255, 0, 0), 2, jis_rom.width);
     //lcd.put_char_scaled(80, 400, &jis_rom.recv_buf[0], rgb(255, 255, 0), 4, jis_rom.width);
     //lcd.put_char_scaled_line(160, 400, &jis_rom.recv_buf[0], rgb(255, 255, 255), 4, jis_rom.width);
-    put_utf8("魑魅魍魎が跳梁跋扈する。", 0, 400, lcd.rgb(0, 255, 0), 4);
+    //lcd.boxfill(0, 400, 799, 479,0,false);
+    put_utf8("Core 1", 50, 150, lcd.rgb(255, 255, 0), 6, true);
+    put_utf8("魑魅魍魎が跳梁跋扈する。", 0, 416, lcd.rgb(0, 255, 0), 4, false);
 
     first_draw_done = true;
     cnt--; if(cnt < 0) {cnt = 15;}
-    scroll_cnt++; if(scroll_cnt > 480) {scroll_cnt = 0;}
+    scroll_cnt += 4; if(scroll_cnt > 800) {scroll_cnt = 0;}
 
     lcd.swapbuffer();    
     //sleep_us(10); // 適当に遅延
@@ -226,6 +237,7 @@ void loop1(void) {
 #endif
 
     static bool first_draw_done = false;
+#if 0
     for(int y = 0; y < 16; y++) {
         for(int x = 0; x < 16; x++) {
             uint16_t old_chip_map_y = abs(y + cnt - 1) % 16;
@@ -242,6 +254,9 @@ void loop1(void) {
             }
         }
     }
+    //put_utf8("Core 2", 450, 100, lcd.rgb(255, 255, 0), 6, true);
+#endif
+
     first_draw_done = true;
     cnt++;if(cnt > 16){cnt = 0;}
 
