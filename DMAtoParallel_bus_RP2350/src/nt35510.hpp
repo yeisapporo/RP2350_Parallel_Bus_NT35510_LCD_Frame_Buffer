@@ -8,9 +8,9 @@
 #define TFT_D0 0       // GPIO0〜7をデータバスに使用
 #define TFT_CS 18
 #define TFT_RS 8
-#define TFT_RD 9
+#define TFT_RD 9    // readx
 #define TFT_RESET 10
-#define TFT_WR 11
+#define TFT_WR 11   // writex
 #define TFT_DEBUG_SIG 28    // 漢字ROM接続時は他ピンに変更すること。
 
 #include <Arduino.h>
@@ -58,7 +58,7 @@ typedef volatile struct _bitblt_dma {
     int16_t hcnt;   // horizontal
     int16_t vcnt;   // vertical
 } BITBLT_DMA;
-BITBLT_DMA bitblt_dma, bitblt_dma2, bitblt_dma3, bitblt_dma4;
+volatile BITBLT_DMA bitblt_dma, bitblt_dma2, bitblt_dma3, bitblt_dma4;
 semaphore_t bitblt_sem;
 
 class NT35510LCD {
@@ -316,6 +316,8 @@ class NT35510LCD {
 
         }
         dma_hw->ints1 = 1u << dma_channel[4];
+        digitalWrite(TFT_DEBUG_SIG, 1);
+        digitalWrite(TFT_DEBUG_SIG, 0);
     }
 
     static void bitblt_irq_handler2(void) {
@@ -339,6 +341,10 @@ class NT35510LCD {
             bitblt_dma3.busy = false;
         }
         dma_hw->ints2 = 1u << dma_channel[6];
+        digitalWrite(TFT_DEBUG_SIG, 1);
+        digitalWrite(TFT_DEBUG_SIG, 0);
+        digitalWrite(TFT_DEBUG_SIG, 1);
+        digitalWrite(TFT_DEBUG_SIG, 0);
     }
 
     dma_channel_config dma_config[7];
@@ -557,18 +563,22 @@ class NT35510LCD {
         return 0;
     }
 
+    // this needs to be modified to use DMA.
     int boxfill(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color, bool both) {
         uint16_t smaller_x = max((min(x1, x2)), 0);
-        uint16_t larger_x = min((max(x1, x2)), _screen_width);
+        uint16_t larger_x = min((max(x1, x2)), _screen_width - 1);
         uint16_t smaller_y = max((min(y1, y2)), 0);
-        uint16_t larger_y = min((max(y1, y2)), _screen_height);
+        uint16_t larger_y = min((max(y1, y2)), _screen_height - 1);
 
+#if 0
         for(int y = smaller_y; y <= larger_y; y++) {
             for(int x = smaller_x; x <= larger_x; x++) {
                 pset(x, y, color, both);
             }
         }
-
+#else
+        rect_dma_paint(smaller_x, smaller_y, larger_x - smaller_x, larger_y - smaller_y, color, both);
+#endif
         return 0;
     }
 
@@ -661,7 +671,6 @@ class NT35510LCD {
                 }
             }
         }
-
         return 0; 
     }
 
@@ -671,6 +680,7 @@ class NT35510LCD {
         BITBLT_DMA *dma_second;
         int channel_pair[2];
 
+#if 1
         while(bitblt_dma.busy || bitblt_dma3.busy) {dummy++;}
         if(get_core_num() == 1) {
             bitblt_dma.busy = true;
@@ -684,7 +694,21 @@ class NT35510LCD {
             DBG("bitblt() busy.\n");
             return -1;
         }
-
+#else
+        while(bitblt_dma.busy || bitblt_dma3.busy) {dummy++;}
+        if(bitblt_dma.busy == false) {
+            bitblt_dma.busy = true;
+            channel_pair[0] = 2; channel_pair[1] = 4;
+            dma_first = &bitblt_dma; dma_second = &bitblt_dma2;
+        } else if (bitblt_dma3.busy == false) {
+            bitblt_dma3.busy = true;
+            channel_pair[0] = 5; channel_pair[1] = 6;
+            dma_first = &bitblt_dma3; dma_second = &bitblt_dma4;
+        } else {
+            DBG("bitblt() all DMA are busy.\n");
+            return -1;
+        }
+#endif
         // specified screen:
         if(src == (void *)chip_map) {
             dma_first->src_to_next = 256;
@@ -697,7 +721,6 @@ class NT35510LCD {
         dma_first->hcnt = w;
         dma_first->vcnt = h;    // h: height
         dma_first->dest = (uint16_t *)&drawingbuffer[dest_y * dma_first->dest_to_next + dest_x];
-
         if(both) {
             if(src == (void *)chip_map) {
                 dma_second->src_to_next = 256;
@@ -718,15 +741,102 @@ class NT35510LCD {
             
         }
 
-        dma_channel_set_read_addr(dma_channel[channel_pair[1]], dma_second->src, false);
-        dma_channel_set_write_addr(dma_channel[channel_pair[1]], dma_second->dest, false);
-        dma_channel_set_trans_count(dma_channel[channel_pair[1]], dma_second->hcnt, false);
+        dma_hw->ch[channel_pair[0]].al1_ctrl |= DMA_CH0_CTRL_TRIG_INCR_READ_BITS;
+        dma_hw->ch[channel_pair[1]].al1_ctrl |= DMA_CH0_CTRL_TRIG_INCR_READ_BITS;
 
         dma_channel_set_read_addr(dma_channel[channel_pair[0]], dma_first->src, false);
         dma_channel_set_write_addr(dma_channel[channel_pair[0]], dma_first->dest, false);
         dma_channel_set_trans_count(dma_channel[channel_pair[0]], dma_first->hcnt, false);
 
+        dma_channel_set_read_addr(dma_channel[channel_pair[1]], dma_second->src, false);
+        dma_channel_set_write_addr(dma_channel[channel_pair[1]], dma_second->dest, false);
+        dma_channel_set_trans_count(dma_channel[channel_pair[1]], dma_second->hcnt, false);
+
         dma_channel_start(dma_channel[channel_pair[0]]);
+        return 0;
+    }
+
+    #define COLOR_SRC_NUM (16)
+    // The size of this buffer should be extra, because the old colour_src_buf[] is referenced 
+    // by the execution of rect_paint() for a small area.
+    volatile __attribute__((aligned(4))) uint16_t color_src_buf[COLOR_SRC_NUM];
+    int rect_dma_paint(uint16_t dest_x, uint16_t dest_y, uint16_t w, uint16_t h, uint16_t color, bool both) {
+        volatile uint32_t dummy = 0;
+        BITBLT_DMA *dma_first;
+        BITBLT_DMA *dma_second;
+        int channel_pair[2];
+        static int color_src_idx = 0;
+
+#if 1
+        while(bitblt_dma.busy || bitblt_dma3.busy) {dummy++;}
+        if(get_core_num() == 1) {
+            bitblt_dma.busy = true;
+            channel_pair[0] = 2; channel_pair[1] = 4;
+            dma_first = &bitblt_dma; dma_second = &bitblt_dma2;
+        } else if(get_core_num() == 0) {
+            bitblt_dma3.busy = true;
+            channel_pair[0] = 5; channel_pair[1] = 6;
+            dma_first = &bitblt_dma3; dma_second = &bitblt_dma4;
+        } else {
+            DBG("rect_dma_paint() busy.\n");
+            return -1;
+        }
+#else
+        while(bitblt_dma.busy || bitblt_dma3.busy) {dummy++;}
+        if(bitblt_dma.busy == false) {
+            bitblt_dma.busy = true;
+            channel_pair[0] = 2; channel_pair[1] = 4;
+            dma_first = &bitblt_dma; dma_second = &bitblt_dma2;
+        } else if (bitblt_dma3.busy == false) {
+            bitblt_dma3.busy = true;
+            channel_pair[0] = 5; channel_pair[1] = 6;
+            dma_first = &bitblt_dma3; dma_second = &bitblt_dma4;
+        } else {
+            DBG("bitblt() all DMA are busy.\n");
+            return -1;
+        }
+#endif
+        color_src_buf[color_src_idx] = color;
+        // specified screen:
+        dma_first->src_to_next = 0;
+        dma_first->dest_to_next =_screen_width;
+
+        dma_first->src = (uint16_t *)&color_src_buf[color_src_idx];
+        dma_first->hcnt = w;
+        dma_first->vcnt = h;    // h: height
+        dma_first->dest = (uint16_t *)&drawingbuffer[dest_y * dma_first->dest_to_next + dest_x];
+
+        if(both) {
+            dma_second->src_to_next = 0;
+            dma_second->dest_to_next =_screen_width;
+
+            dma_second->src = (uint16_t *)&color_src_buf[color_src_idx];
+            dma_second->hcnt = w;
+            dma_second->vcnt = h;    // h: height
+            dma_second->dest = (uint16_t *)&transferbuffer[dest_y * dma_second->dest_to_next + dest_x];
+        } else {
+            dma_second->src = (uint16_t *)&color_src_buf[color_src_idx];
+            dma_second->hcnt = 0;
+            dma_second->vcnt = h;    // h: height
+            dma_second->dest = (uint16_t *)&transferbuffer[0];
+            
+        }
+
+        dma_hw->ch[channel_pair[0]].al1_ctrl &= ~DMA_CH0_CTRL_TRIG_INCR_READ_BITS;
+        dma_hw->ch[channel_pair[1]].al1_ctrl &= ~DMA_CH0_CTRL_TRIG_INCR_READ_BITS;
+
+        dma_channel_set_read_addr(dma_channel[channel_pair[0]], dma_first->src, false);
+        dma_channel_set_write_addr(dma_channel[channel_pair[0]], dma_first->dest, false);
+        dma_channel_set_trans_count(dma_channel[channel_pair[0]], dma_first->hcnt, false);
+
+        dma_channel_set_read_addr(dma_channel[channel_pair[1]], dma_second->src, false);
+        dma_channel_set_write_addr(dma_channel[channel_pair[1]], dma_second->dest, false);
+        dma_channel_set_trans_count(dma_channel[channel_pair[1]], dma_second->hcnt, false);
+
+        dma_channel_start(dma_channel[channel_pair[0]]);
+        if(++color_src_idx >= COLOR_SRC_NUM) {
+            color_src_idx = 0;
+        }
 
         return 0;
     }

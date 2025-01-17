@@ -5,6 +5,7 @@
 // mode 0: positive pulse, front latch, back shift
 SPISettings spisettings(2500000, MSBFIRST, SPI_MODE0);
 
+#if 0
 typedef struct _Mapping {
         uint16_t utf16;  // UTF-16コードポイント
         uint16_t shift_jis; // Shift JISコードポイント
@@ -22,6 +23,7 @@ constexpr MAPPING utf16_to_shift_jis_map[] = {
 };
 
 size_t map_size = sizeof(utf16_to_shift_jis_map) / sizeof(MAPPING);
+#endif
 
 class GT20L16J1Y {
 public:
