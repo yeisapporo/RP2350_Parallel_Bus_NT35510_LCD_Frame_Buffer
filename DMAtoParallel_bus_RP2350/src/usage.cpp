@@ -23,11 +23,60 @@ void setup_debug_serial_out(void) {
     Serial1.begin(9600);
 }
 
-#if 0
-inline uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
-    return (r >> 3) << 11 | (g >> 2) << 5 | (b >> 3);
+///////// timer interrupt test
+//#define ALARM_NUM 0
+uint32_t timeout_us;
+void repeatied_timer_us(uint32_t delay_us);
+void timer_handler(void) {
+    static int a;
+
+    __freertos_task_enter_critical();
+    hw_clear_bits(&timer_hw->intr, 1u << TIMER0_IRQ_0);
+    // Alarm is only 32 bits so if trying to delay more
+    // than that need to be careful and keep track of the upper
+    // bits
+    uint64_t target = timer_hw->timerawl + timeout_us;
+
+    // Write the lower 32 bits of the target time to the alarm which
+    // will arm it
+    timer_hw->alarm[TIMER0_IRQ_0] = (uint32_t) target;
+
+    if(++a == 2) {
+        a = 0;
+    }
+    if(a) {
+        sio_hw->gpio_set = (1ul << DEBUG_SIG) | 1;
+    } else {
+        sio_hw->gpio_clr = (1ul << DEBUG_SIG) | 1;
+    }
+
+    __freertos_task_exit_critical();
+
 }
-#endif
+
+void repeatied_timer_us(uint32_t delay_us) {
+    timeout_us = delay_us;
+    // Enable the interrupt for our alarm (the timer outputs 4 alarm irqs)
+    hw_set_bits(&timer_hw->inte, 1u << TIMER0_IRQ_0);
+    // Set irq handler for alarm irq
+    irq_set_exclusive_handler(TIMER0_IRQ_0, timer_handler);
+    // Enable the alarm irq
+    //irq_set_priority (TIMER0_IRQ_0, 0x50);
+    irq_set_enabled(TIMER0_IRQ_0, true);
+    // Enable interrupt in block and at processor
+
+    // Alarm is only 32 bits so if trying to delay more
+    // than that need to be careful and keep track of the upper
+    // bits
+    uint64_t target = timer_hw->timerawl + delay_us;
+
+    // Write the lower 32 bits of the target time to the alarm which
+    // will arm it
+    timer_hw->alarm[TIMER0_IRQ_0] = (uint32_t) target;
+}
+
+//////////////////////////////
+
 
 void setup() {
     volatile int psram_size;
@@ -46,8 +95,6 @@ void setup() {
     lcd.loadpng(pngdata);
 
     lcd.setup_gpio();
-    // reset DEBUG_SIG
-    lcd.dma_irq_handler();
 
     // NT35510初期化
     lcd.init_LCD();    
@@ -68,6 +115,11 @@ void setup() {
     sleep_us(1000);
     dma_channel_wait_for_finish_blocking(dma_channel[1]);
     dma_channel_start(dma_channel[0]);
+
+////// timer test 22.6757us(44100Hz) when ESP32-YM2203C(VGM)
+    DBG("%d\n", irq_get_priority(DMA_IRQ_0));
+    repeatied_timer_us(22); //interval setting
+
 
     //sleep_ms(2500);
 }
@@ -198,7 +250,8 @@ void loop() {
 
     // 74HC595 test (no display due to RD control taken here.)
     // ★正常動作確認済み
-    //shiftOut(9, 10, MSBFIRST, random(0, 2) * 255);    // need to set CLK to L at the first time.
+    //shiftOut(9, 10, MSBFIRST, 0xaa);    // need to set CLK to L at the first time.
+    //shiftOut(9, 10, MSBFIRST, 0xaa);    // need to set CLK to L at the first time.
 
     first_draw_done = true;
     cnt--; if(cnt < 0) {cnt = 15;}

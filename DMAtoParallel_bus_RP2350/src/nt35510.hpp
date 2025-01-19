@@ -11,7 +11,7 @@
 #define TFT_RD 9    // readx
 #define TFT_RESET 10
 #define TFT_WR 11   // writex
-#define TFT_DEBUG_SIG 28    // 漢字ROM接続時は他ピンに変更すること。
+#define DEBUG_SIG   28  // 仮
 
 #include <Arduino.h>
 #include "pico/stdlib.h"
@@ -73,7 +73,7 @@ class NT35510LCD {
             gpio_set_dir(i, GPIO_OUT);
         }
 
-        int tft_pins[] = {TFT_RS, TFT_RD, TFT_WR, TFT_RESET, TFT_CS, TFT_DEBUG_SIG};
+        int tft_pins[] = {TFT_RS, TFT_RD, TFT_WR, TFT_RESET, TFT_CS, DEBUG_SIG};
         for (int i = 0; i < sizeof(tft_pins) / sizeof(int); i++) {
             gpio_init(tft_pins[i]);
             gpio_set_drive_strength(tft_pins[i], GPIO_DRIVE_STRENGTH_4MA);
@@ -223,11 +223,9 @@ class NT35510LCD {
 #define YOKO_GAMEN
         sendCommand(0x3600, {0b00100001});    // MADCTL display direction
         sendCommand(0x3a00, {0b01010100});    // 16bit-16bit (two commands are required)
-        sendCommand(0x1200);                   // partial mode on
+        //sendCommand(0x1200);                   // partial mode on    
         sendCommand(0x2a00, {0, 0, 0x03, 0x1f});  // long side width: 800
         sendCommand(0x2b00, {0, 0, 0x02, 0x57});  // short side width: 600(0x257) ? for 480(0x1df)
-        //sendCommand(0x3000, {0, 0, 0x03, 0x1F});
-        //sendCommand(0x3000, {7, 0xdf, 0x02, 0xdf});
         sendCommand(0x3500);    // tearing effect line ON
         sendCommand(0x3a00, {0b01010101});    // 16bit-16bit (two commands are required)
 #else
@@ -316,8 +314,6 @@ class NT35510LCD {
 
         }
         dma_hw->ints1 = 1u << dma_channel[4];
-        digitalWrite(TFT_DEBUG_SIG, 1);
-        digitalWrite(TFT_DEBUG_SIG, 0);
     }
 
     static void bitblt_irq_handler2(void) {
@@ -341,10 +337,6 @@ class NT35510LCD {
             bitblt_dma3.busy = false;
         }
         dma_hw->ints2 = 1u << dma_channel[6];
-        digitalWrite(TFT_DEBUG_SIG, 1);
-        digitalWrite(TFT_DEBUG_SIG, 0);
-        digitalWrite(TFT_DEBUG_SIG, 1);
-        digitalWrite(TFT_DEBUG_SIG, 0);
     }
 
     dma_channel_config dma_config[7];
