@@ -3,27 +3,7 @@
 #include "utf16_kuten.h"
 
 // mode 0: positive pulse, front latch, back shift
-SPISettings spisettings(2500000, MSBFIRST, SPI_MODE0);
-
-#if 0
-typedef struct _Mapping {
-        uint16_t utf16;  // UTF-16コードポイント
-        uint16_t shift_jis; // Shift JISコードポイント
-} MAPPING;
-
-// ★要作成マッピングテーブル★
-constexpr MAPPING utf16_to_shift_jis_map[] = {
-    {0x0041, 0x8260}, // 'A'
-    {0x0042, 0x8261}, // 'B'
-    {0x3042, 0x82A0}, // 'あ'
-    {0x3044, 0x82A2}, // 'い'
-    {0x3046, 0x82A4}, // 'う'
-    {0x4E00, 0x88EA} // '一'
-    // 必要に応じて追加
-};
-
-size_t map_size = sizeof(utf16_to_shift_jis_map) / sizeof(MAPPING);
-#endif
+SPISettings spisettings(20000000, MSBFIRST, SPI_MODE0);
 
 class GT20L16J1Y {
 public:

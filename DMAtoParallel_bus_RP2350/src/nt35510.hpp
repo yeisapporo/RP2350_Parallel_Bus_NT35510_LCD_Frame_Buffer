@@ -21,11 +21,7 @@
 
 #include "pngle.h"
 
-//#include "churu_yoko-gamen.h"
-//#include "churu_tate-gamen.h"
 #if defined(PIMORONI_PICO_PLUS_2)
-//#include "churu_full.h"
-//#include "image004.h"
 #include "data.h"
 #endif
 
@@ -42,11 +38,13 @@ __attribute__((aligned(4))) uint16_t framebuffer[1][SCREEN_SIZE];
 #endif
 volatile __attribute__((aligned(4))) uint16_t *transferbuffer = framebuffer[0];
 #if defined(PIMORONI_PICO_PLUS_2)
-// selecting single buffer, change [1] to [0].
-volatile __attribute__((aligned(4))) uint16_t *drawingbuffer = framebuffer[1];
+// to select single buffer, change [1] to [0].
+volatile __attribute__((aligned(4))) uint16_t *drawingbuffer = framebuffer[0];
 #else
 volatile __attribute__((aligned(4))) uint16_t *drawingbuffer = framebuffer[0];
 #endif
+// pseudo-hardware scrolling test
+uint16_t fixed_y = 300;
 
 volatile uint dma_channel[7];
 typedef volatile struct _bitblt_dma {
@@ -288,8 +286,21 @@ class NT35510LCD {
         DMA_IRQ_INDEX_2,
         DMA_IRQ_INDEX_3,
     };
+
+    inline static void clear_dma_irq(uint dma_ch) {
+        if(dma_ch <= 7) {
+            dma_hw->ints0 = 1u << dma_ch;
+        } else {
+            dma_hw->ints1 = 1u << (dma_ch - 8);
+        }
+    }
+
     static void dma_irq_handler(void) {
-        dma_hw->ints0 = 1u << dma_channel[1];   // clear irq.
+        clear_dma_irq(dma_channel[1]);   // clear irq.
+        fixed_y -= 8;
+        if(fixed_y <= 0) {
+            fixed_y = 480;
+        }
     }
 
     static void bitblt_irq_handler1(void) {
@@ -313,7 +324,7 @@ class NT35510LCD {
             bitblt_dma.busy = false;
 
         }
-        dma_hw->ints1 = 1u << dma_channel[4];
+        clear_dma_irq(dma_channel[4]);
     }
 
     static void bitblt_irq_handler2(void) {
@@ -336,7 +347,7 @@ class NT35510LCD {
         } else {
             bitblt_dma3.busy = false;
         }
-        dma_hw->ints2 = 1u << dma_channel[6];
+        clear_dma_irq(dma_channel[6]);
     }
 
     dma_channel_config dma_config[7];
@@ -395,6 +406,7 @@ class NT35510LCD {
         channel_config_set_transfer_data_size(&dma_config[2], DMA_SIZE_16);
         channel_config_set_read_increment(&dma_config[2], true);
         channel_config_set_write_increment(&dma_config[2], true);
+        channel_config_set_dreq(&dma_config[2], DREQ_FORCE);
         dma_channel_set_config(dma_channel[2], &dma_config[2], false);
         channel_config_set_chain_to(&dma_config[2], dma_channel[4]);
         dma_channel_configure(
@@ -411,6 +423,7 @@ class NT35510LCD {
         channel_config_set_transfer_data_size(&dma_config[4], DMA_SIZE_16);
         channel_config_set_read_increment(&dma_config[4], true);
         channel_config_set_write_increment(&dma_config[4], true);
+        channel_config_set_dreq(&dma_config[4], DREQ_FORCE);
         dma_channel_set_config(dma_channel[4], &dma_config[4], false);
         dma_channel_configure(
             dma_channel[4],  // チャネル番号
@@ -429,6 +442,7 @@ class NT35510LCD {
         channel_config_set_transfer_data_size(&dma_config[5], DMA_SIZE_16);
         channel_config_set_read_increment(&dma_config[5], true);
         channel_config_set_write_increment(&dma_config[5], true);
+        channel_config_set_dreq(&dma_config[5], DREQ_FORCE);
         dma_channel_set_config(dma_channel[5], &dma_config[5], false);
         channel_config_set_chain_to(&dma_config[5], dma_channel[6]);
         dma_channel_configure(
@@ -445,6 +459,7 @@ class NT35510LCD {
         channel_config_set_transfer_data_size(&dma_config[6], DMA_SIZE_16);
         channel_config_set_read_increment(&dma_config[6], true);
         channel_config_set_write_increment(&dma_config[6], true);
+        channel_config_set_dreq(&dma_config[6], DREQ_FORCE);
         dma_channel_set_config(dma_channel[6], &dma_config[6], false);
         dma_channel_configure(
             dma_channel[6],
@@ -481,7 +496,7 @@ class NT35510LCD {
         #define DBG Serial1.printf
         Serial1.setRX(17u);
         Serial1.setTX(16u);
-        Serial1.begin(9600);
+        Serial1.begin(115200);
     }
 
     void initframebuffers(void) {
