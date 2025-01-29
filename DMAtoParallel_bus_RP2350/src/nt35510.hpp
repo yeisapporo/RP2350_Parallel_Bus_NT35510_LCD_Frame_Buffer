@@ -520,7 +520,7 @@ class NT35510LCD {
     #define LARGER(x,y) ((x)>=(y)?(x):(y)) 
 
     inline uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
-        return (r >> 3) << 11 | (g >> 2) << 5 | (b >> 3);
+        return ((r & 250 >> 3) << 11) | ((g & 250 >> 2) << 5) | (b & 250 >> 3);
     }
 
     inline int pset(int16_t x, int16_t y, uint16_t color, bool draw_both) {
@@ -702,17 +702,17 @@ class NT35510LCD {
             return -1;
         }
 #else
-        while(bitblt_dma.busy || bitblt_dma3.busy) {dummy++;}
-        if(bitblt_dma.busy == false) {
+        while(bitblt_dma.busy) {dummy++;}
+        if(!bitblt_dma.busy) {
             bitblt_dma.busy = true;
             channel_pair[0] = 2; channel_pair[1] = 4;
             dma_first = &bitblt_dma; dma_second = &bitblt_dma2;
-        } else if (bitblt_dma3.busy == false) {
-            bitblt_dma3.busy = true;
-            channel_pair[0] = 5; channel_pair[1] = 6;
-            dma_first = &bitblt_dma3; dma_second = &bitblt_dma4;
+//        } else if(!bitblt_dma3.busy) {
+//            bitblt_dma3.busy = true;
+//            channel_pair[0] = 5; channel_pair[1] = 6;
+//            dma_first = &bitblt_dma3; dma_second = &bitblt_dma4;
         } else {
-            DBG("bitblt() all DMA are busy.\n");
+            DBG("bitblt() busy.\n");
             return -1;
         }
 #endif
@@ -789,17 +789,17 @@ class NT35510LCD {
             return -1;
         }
 #else
-        while(bitblt_dma.busy || bitblt_dma3.busy) {dummy++;}
-        if(bitblt_dma.busy == false) {
-            bitblt_dma.busy = true;
-            channel_pair[0] = 2; channel_pair[1] = 4;
-            dma_first = &bitblt_dma; dma_second = &bitblt_dma2;
-        } else if (bitblt_dma3.busy == false) {
+        while(bitblt_dma3.busy) {dummy++;}
+        if(!bitblt_dma3.busy) {
             bitblt_dma3.busy = true;
             channel_pair[0] = 5; channel_pair[1] = 6;
             dma_first = &bitblt_dma3; dma_second = &bitblt_dma4;
+//        } else if(!bitblt_dma.busy) {
+//            bitblt_dma.busy = true;
+//            channel_pair[0] = 2; channel_pair[1] = 4;
+//            dma_first = &bitblt_dma; dma_second = &bitblt_dma2;
         } else {
-            DBG("bitblt() all DMA are busy.\n");
+            DBG("rect_dma_paint() busy.\n");
             return -1;
         }
 #endif
@@ -947,7 +947,7 @@ class NT35510LCD {
                         }
                     }
 
-                    this->pset(start_x, start_y, color, both);
+                    //this->pset(start_x, start_y, color, both);
                 }
             }
         }
