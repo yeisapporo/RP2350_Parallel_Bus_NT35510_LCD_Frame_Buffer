@@ -262,11 +262,7 @@ class NT35510LCD {
         // PIOの初期設定
         pio_sm_config config = parallel_out_program_get_default_config(offset);
         sm_config_set_out_pins(&config, TFT_D0, 8); // データバスの出力ピン設定
-#if 0
-        sm_config_set_set_pins(&config, TFT_WR, 1);      // GP11をSET命令で操作対象
-#else
         sm_config_set_sideset_pins(&config, TFT_WR);
-#endif
         sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_TX);
 #if defined(PIMORONI_PICO_PLUS_2)
 #else
@@ -304,6 +300,7 @@ class NT35510LCD {
     }
 
     static void bitblt_irq_handler1(void) {
+        noInterrupts();
         if(bitblt_dma.vcnt > 0) {
             bitblt_dma.vcnt--;
             bitblt_dma.src += bitblt_dma.src_to_next;
@@ -311,23 +308,16 @@ class NT35510LCD {
             dma_channel_set_read_addr(dma_channel[2], bitblt_dma.src, false);
             dma_channel_set_write_addr(dma_channel[2], bitblt_dma.dest, false);
             dma_channel_set_trans_count(dma_channel[2], bitblt_dma.hcnt, false);
-        }
-        if(bitblt_dma2.vcnt > 0) {
-            bitblt_dma2.vcnt--;
-            bitblt_dma2.src += bitblt_dma2.src_to_next;
-            bitblt_dma2.dest += bitblt_dma2.dest_to_next;
-            dma_channel_set_read_addr(dma_channel[4], bitblt_dma2.src, false);
-            dma_channel_set_write_addr(dma_channel[4], bitblt_dma2.dest, false);
-            dma_channel_set_trans_count(dma_channel[4], bitblt_dma2.hcnt, false);
             dma_channel_start(dma_channel[2]);
         } else {
             bitblt_dma.busy = false;
-
         }
-        clear_dma_irq(dma_channel[4]);
+        clear_dma_irq(dma_channel[2]);
+        interrupts();
     }
 
     static void bitblt_irq_handler2(void) {
+        noInterrupts();
         if(bitblt_dma3.vcnt > 0) {
             bitblt_dma3.vcnt--;
             bitblt_dma3.src += bitblt_dma3.src_to_next;
@@ -335,19 +325,12 @@ class NT35510LCD {
             dma_channel_set_read_addr(dma_channel[5], bitblt_dma3.src, false);
             dma_channel_set_write_addr(dma_channel[5], bitblt_dma3.dest, false);
             dma_channel_set_trans_count(dma_channel[5], bitblt_dma3.hcnt, false);
-        }
-        if(bitblt_dma4.vcnt > 0) {
-            bitblt_dma4.vcnt--;
-            bitblt_dma4.src += bitblt_dma4.src_to_next;
-            bitblt_dma4.dest += bitblt_dma4.dest_to_next;
-            dma_channel_set_read_addr(dma_channel[6], bitblt_dma4.src, false);
-            dma_channel_set_write_addr(dma_channel[6], bitblt_dma4.dest, false);
-            dma_channel_set_trans_count(dma_channel[6], bitblt_dma4.hcnt, false);
             dma_channel_start(dma_channel[5]);
         } else {
             bitblt_dma3.busy = false;
         }
-        clear_dma_irq(dma_channel[6]);
+        clear_dma_irq(dma_channel[5]);
+        interrupts();
     }
 
     dma_channel_config dma_config[7];
@@ -408,7 +391,9 @@ class NT35510LCD {
         channel_config_set_write_increment(&dma_config[2], true);
         channel_config_set_dreq(&dma_config[2], DREQ_FORCE);
         dma_channel_set_config(dma_channel[2], &dma_config[2], false);
+#if 0
         channel_config_set_chain_to(&dma_config[2], dma_channel[4]);
+#endif
         dma_channel_configure(
             dma_channel[2],  // チャネル番号
             &dma_config[2],         // 設定
@@ -433,7 +418,11 @@ class NT35510LCD {
             1,    // 転送回数
             false           // 自動開始しない
         );
+#if 0
         dma_irqn_set_channel_enabled(DMA_IRQ_INDEX_1, dma_channel[4], true);
+#else
+        dma_irqn_set_channel_enabled(DMA_IRQ_INDEX_1, dma_channel[2], true);
+#endif
         irq_set_exclusive_handler(DMA_IRQ_1, bitblt_irq_handler1);
         irq_set_enabled(DMA_IRQ_1, true);
 
@@ -444,7 +433,7 @@ class NT35510LCD {
         channel_config_set_write_increment(&dma_config[5], true);
         channel_config_set_dreq(&dma_config[5], DREQ_FORCE);
         dma_channel_set_config(dma_channel[5], &dma_config[5], false);
-        channel_config_set_chain_to(&dma_config[5], dma_channel[6]);
+        //channel_config_set_chain_to(&dma_config[5], dma_channel[6]);
         dma_channel_configure(
             dma_channel[5],
             &dma_config[5],
@@ -469,7 +458,11 @@ class NT35510LCD {
             1,    // 転送回数
             false
         );
+#if 0
         dma_irqn_set_channel_enabled(DMA_IRQ_INDEX_2, dma_channel[6], true);
+#else
+        dma_irqn_set_channel_enabled(DMA_IRQ_INDEX_2, dma_channel[5], true);
+#endif
         irq_set_exclusive_handler(DMA_IRQ_2, bitblt_irq_handler2);
         irq_set_enabled(DMA_IRQ_2, true);
 
@@ -520,7 +513,11 @@ class NT35510LCD {
     #define LARGER(x,y) ((x)>=(y)?(x):(y)) 
 
     inline uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
+#if 1
         return ((r & 250 >> 3) << 11) | ((g & 250 >> 2) << 5) | (b & 250 >> 3);
+#else
+        return (r >> 3) << 11 | (g >> 2) << 5 | b >> 3;
+#endif
     }
 
     inline int pset(int16_t x, int16_t y, uint16_t color, bool draw_both) {
@@ -749,16 +746,9 @@ class NT35510LCD {
         }
 
         dma_hw->ch[channel_pair[0]].al1_ctrl |= DMA_CH0_CTRL_TRIG_INCR_READ_BITS;
-        dma_hw->ch[channel_pair[1]].al1_ctrl |= DMA_CH0_CTRL_TRIG_INCR_READ_BITS;
-
         dma_channel_set_read_addr(dma_channel[channel_pair[0]], dma_first->src, false);
         dma_channel_set_write_addr(dma_channel[channel_pair[0]], dma_first->dest, false);
         dma_channel_set_trans_count(dma_channel[channel_pair[0]], dma_first->hcnt, false);
-
-        dma_channel_set_read_addr(dma_channel[channel_pair[1]], dma_second->src, false);
-        dma_channel_set_write_addr(dma_channel[channel_pair[1]], dma_second->dest, false);
-        dma_channel_set_trans_count(dma_channel[channel_pair[1]], dma_second->hcnt, false);
-
         dma_channel_start(dma_channel[channel_pair[0]]);
         return 0;
     }
@@ -830,16 +820,9 @@ class NT35510LCD {
         }
 
         dma_hw->ch[channel_pair[0]].al1_ctrl &= ~DMA_CH0_CTRL_TRIG_INCR_READ_BITS;
-        dma_hw->ch[channel_pair[1]].al1_ctrl &= ~DMA_CH0_CTRL_TRIG_INCR_READ_BITS;
-
         dma_channel_set_read_addr(dma_channel[channel_pair[0]], dma_first->src, false);
         dma_channel_set_write_addr(dma_channel[channel_pair[0]], dma_first->dest, false);
         dma_channel_set_trans_count(dma_channel[channel_pair[0]], dma_first->hcnt, false);
-
-        dma_channel_set_read_addr(dma_channel[channel_pair[1]], dma_second->src, false);
-        dma_channel_set_write_addr(dma_channel[channel_pair[1]], dma_second->dest, false);
-        dma_channel_set_trans_count(dma_channel[channel_pair[1]], dma_second->hcnt, false);
-
         dma_channel_start(dma_channel[channel_pair[0]]);
         if(++color_src_idx >= COLOR_SRC_NUM) {
             color_src_idx = 0;

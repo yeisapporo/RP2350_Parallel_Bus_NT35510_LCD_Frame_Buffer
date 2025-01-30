@@ -172,13 +172,15 @@ void put_utf8(const char *str, uint16_t x, uint16_t y, uint16_t color, uint8_t s
     uint8_t ten;
     uint8_t ascii;
     uint8_t bytes;
+
+    memset(&jis_rom.recv_buf[0], 0, sizeof(jis_rom.recv_buf));
     while(*str != '\0') {
         width = jis_rom.load_utf8_char((uint8_t *)str, &ku, &ten, &ascii, &bytes);
         switch(width) {
             case 8:
                 lcd.put_char_scaled_line(x, y, &jis_rom.recv_buf[0], color, scale, width, both);
                 x += width * scale;
-                str++;
+                str += bytes;
                 break;
             case 16:
                 lcd.put_char_scaled_line(x, y, &jis_rom.recv_buf[0], color, scale, width, both);
@@ -192,6 +194,7 @@ void put_utf8(const char *str, uint16_t x, uint16_t y, uint16_t color, uint8_t s
 }
 
 bool loop_started = false;
+/// @brief 
 void loop() {
     loop_started = true;
     static int a;
@@ -207,7 +210,7 @@ void loop() {
     }
 
 // drawing test
-    static int cnt = 15;
+    static int cnt = 0;
     static int scroll_cnt = 0;
 #if 0
     for(int i = 0; i < 8; i++) {
@@ -221,21 +224,21 @@ void loop() {
 
 #if 1
     // draw flame
-    lcd.boxfill(0, 0, 799,15, lcd.rgb(255, 0, 0), false);
-    lcd.boxfill(0, 15, 15, 400, lcd.rgb(255, 0, 255), false);
-    lcd.boxfill(784, 16, 799, 400, lcd.rgb(0, 0, 255), false);
-    lcd.boxfill(0, 400, 799, 415, lcd.rgb(255, 255, 0), false);
+    lcd.boxfill(0, 0, 799,15, lcd.rgb(0, 255, 0), false);
+    lcd.boxfill(0, 15, 15, 400, lcd.rgb(0, 255, 0), false);
+    lcd.boxfill(784, 16, 799, 400, lcd.rgb(0, 255, 0), false);
+    lcd.boxfill(0, 400, 799, 415, lcd.rgb(0, 255, 0), false);
 #endif
 
 #if 1
     for(int y = 0; y < 16; y++) {
         for(int x = 0; x < 32; x++) {
-            uint16_t old_chip_map_y = abs(y + cnt + 1) % 16;
-            uint16_t old_table_x = map_table[field_map[old_chip_map_y][x]][1];
-            uint16_t old_table_y = map_table[field_map[old_chip_map_y][x]][0];
-            uint16_t chip_map_y = abs(y + cnt) % 16;
-            uint16_t table_x = map_table[field_map[chip_map_y][x]][1];
-            uint16_t table_y = map_table[field_map[chip_map_y][x]][0];
+            uint16_t old_chip_map_x = abs(x + cnt - 1) % 16;
+            uint16_t old_table_y = map_table[field_map[y][old_chip_map_x]][0];
+            uint16_t old_table_x = map_table[field_map[y][old_chip_map_x]][1];
+            uint16_t chip_map_x = abs(x + cnt) % 16;
+            uint16_t table_y = map_table[field_map[y][chip_map_x]][0];
+            uint16_t table_x = map_table[field_map[y][chip_map_x]][1];
             // Only actually draw if the chip about to be drawn is different than the chip
             // already in the drawing destination.
             if(!first_draw_done || (old_table_y != table_y || old_table_x != table_x)) {
@@ -246,9 +249,10 @@ void loop() {
 #endif
     // 漢字表示テスト
 #if 1
-    put_utf8("High-performance", 64, 128, lcd.rgb(255, 255, 255), 3, false);
-    put_utf8("gaming machine with RP2350.", 64, 196, lcd.rgb(255, 255, 255), 3, false);
-    put_utf8("魑魅魍魎が跳梁跋扈する。", 0, 416, lcd.rgb(0, 255, 0), 4, false);
+    put_utf8("RP2350搭載小型ゲーム機", 64, 128, lcd.rgb(255, 255, 255), 3, false);
+    put_utf8("★鶴龜算を解くツルとカメ。", 0, 416, lcd.rgb(0, 255, 255), 4, false);
+    //lcd.box(random(800),random(800), random(480), random(480), lcd.rgb(255, 255, 255), false);
+    
     //lcd.boxfill(200, fixed_y, 260, fixed_y + 60, lcd.rgb(255, 0, 0), false);
     //lcd.boxfill(200, fixed_y + 60, 260, fixed_y + 61, 0, false);
 #endif
@@ -262,7 +266,7 @@ void loop() {
     //shiftOut(9, 10, MSBFIRST, 0xaa);    // need to set CLK to L at the first time.
 
     first_draw_done = true;
-    cnt--; if(cnt < 0) {cnt = 15;}
+    cnt++; if(cnt > 16) {cnt = 0;}
     scroll_cnt += 4; if(scroll_cnt > 800) {scroll_cnt = 0;}
 
     lcd.swapbuffer();
