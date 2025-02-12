@@ -5,13 +5,13 @@
 ///////////////////////////////////////////////////////////////////////////////////////////
 #define PIMORONI_PICO_PLUS_2
 
-#define TFT_D0 0       // GPIO0〜7をデータバスに使用
+#define TFT_D0 0       // GPIO0〜7 as data bus
 #define TFT_CS 18
 #define TFT_RS 8
 #define TFT_RD 9    // readx
 #define TFT_RESET 10
 #define TFT_WR 11   // writex
-#define DEBUG_SIG   28  // 仮
+#define DEBUG_SIG   28  // (provisional)
 
 #include <Arduino.h>
 #include "pico/stdlib.h"
@@ -26,12 +26,12 @@
 #endif
 
 #if defined(PIMORONI_PICO_PLUS_2)
-#define SCREEN_SIZE 800*480   // 画面サイズ
+#define SCREEN_SIZE 800*480   // screen size
 #else
-#define SCREEN_SIZE 400*480   // 画面サイズ(landscape) or 800*240 (portrait)
+#define SCREEN_SIZE 400*480   // screen size (landscape) or 800*240 (portrait)
 #endif
 #if defined(PIMORONI_PICO_PLUS_2)
-__attribute__((aligned(4))) uint16_t framebuffer[2][SCREEN_SIZE] PSRAM; // ピクセルデータを格納
+__attribute__((aligned(4))) uint16_t framebuffer[2][SCREEN_SIZE] PSRAM; // store pixel data
 __attribute__((aligned(4))) uint16_t chip_map[256 * 256] PSRAM;
 #else
 __attribute__((aligned(4))) uint16_t framebuffer[1][SCREEN_SIZE];
@@ -248,31 +248,31 @@ class NT35510LCD {
     }
 
     void setup_pio(PIO pio, uint sm, uint offset) {
-        // データピン (8ピン) を PIO に設定
+        // bind data pins (8-pin) to PIO.
         for (int i = TFT_D0; i < TFT_D0 + 8; i++) {
             pio_gpio_init(pio, i);
         }
-        // WRを PIO に設定
+        // bind WR to PIO.
         pio_gpio_init(pio, TFT_WR);
 
-        // ピン方向の設定
-        pio_sm_set_consecutive_pindirs(pio, sm, TFT_D0, 8, true); // データピン出力
-        pio_sm_set_consecutive_pindirs(pio, sm, TFT_WR, 1, true);      // GP11も出力に設定
+        // set pin directions.
+        pio_sm_set_consecutive_pindirs(pio, sm, TFT_D0, 8, true); // data pin output
+        pio_sm_set_consecutive_pindirs(pio, sm, TFT_WR, 1, true);      // GP11 output
 
-        // PIOの初期設定
+        // init PIO
         pio_sm_config config = parallel_out_program_get_default_config(offset);
-        sm_config_set_out_pins(&config, TFT_D0, 8); // データバスの出力ピン設定
+        sm_config_set_out_pins(&config, TFT_D0, 8); // data bus
         sm_config_set_sideset_pins(&config, TFT_WR);
         sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_TX);
 #if defined(PIMORONI_PICO_PLUS_2)
 #else
         sm_config_set_out_shift(&config, false, false, 16);
 #endif
-        sm_config_set_clkdiv(&config, 1.0f); // クロック分周値
+        sm_config_set_clkdiv(&config, 1.0f); // clock division value
 
-        // ステートマシンを初期化
+        // init state machine
         pio_sm_init(pio, sm, offset, &config);
-        // ステートマシンを有効化
+        // enable
         pio_sm_set_enabled(pio, sm, true);
     }
 
@@ -280,7 +280,7 @@ class NT35510LCD {
         DMA_IRQ_INDEX_0 = 0,
         DMA_IRQ_INDEX_1,
         DMA_IRQ_INDEX_2,
-        DMA_IRQ_INDEX_3,
+        DMA_IRQ_INDEX_3,    // rp2350 specific
     };
 
     inline static void clear_dma_irq(uint dma_ch) {
@@ -293,6 +293,8 @@ class NT35510LCD {
 
     static void dma_irq_handler(void) {
         clear_dma_irq(dma_channel[1]);   // clear irq.
+
+        // pseudo-hardware scrolling test.
         fixed_y -= 8;
         if(fixed_y <= 0) {
             fixed_y = 480;
@@ -335,7 +337,7 @@ class NT35510LCD {
 
     dma_channel_config dma_config[7];
     void setup_dma(PIO pio, uint sm) {
-        /* データ転送DMA (to LCD) */
+        /* data transfer DMA (to LCD) */
         dma_config[0] = dma_channel_get_default_config(dma_channel[0]);
 #if defined(PIMORONI_PICO_PLUS_2)
         channel_config_set_transfer_data_size(&dma_config[0], DMA_SIZE_16);
@@ -345,25 +347,25 @@ class NT35510LCD {
 #endif
         channel_config_set_read_increment(&dma_config[0], true);
         channel_config_set_write_increment(&dma_config[0], false);
-        // PIOのDREQ設定
+        // set DREQ of PIO
         uint dreq = pio_get_dreq(pio, sm, true);
         channel_config_set_dreq(&dma_config[0], dreq);
         dma_channel_set_config(dma_channel[0], &dma_config[0], false);
         channel_config_set_chain_to(&dma_config[0], dma_channel[1]);
         dma_channel_configure(
-            dma_channel[0],  // チャネル番号
-            &dma_config[0],         // 設定
-            (void *)&pio->txf[sm],  // 転送先
-            (void *)transferbuffer,       // 転送元
+            dma_channel[0],  // ch num.
+            &dma_config[0],         // configuration
+            (void *)&pio->txf[sm],  // to
+            (void *)transferbuffer,       // from
 #if defined(PIMORONI_PICO_PLUS_2)
-            SCREEN_SIZE,    // 転送回数
+            SCREEN_SIZE,    // the number of transfers
 #else
             SCREEN_SIZE,
 #endif
-            false           // 自動開始しない
+            false           // not automatically started
         );
 
-        /* 転送元再設定DMA 転送完了時*/
+        /* re-set source DMA (when finished) */
         dma_config[1] = dma_channel_get_default_config(dma_channel[1]);
         channel_config_set_transfer_data_size(&dma_config[1], DMA_SIZE_32);
         channel_config_set_read_increment(&dma_config[1], false);
@@ -371,20 +373,20 @@ class NT35510LCD {
         dma_channel_set_config(dma_channel[1], &dma_config[1], false);
         channel_config_set_chain_to(&dma_config[1], dma_channel[0]);
         dma_channel_configure(
-            dma_channel[1],  // チャネル番号
-            &dma_config[1],         // 設定
-            &dma_hw->ch[dma_channel[0]].al1_read_addr,  // 転送先
-            &transferbuffer,       // 転送元
-            1,    // 転送回数
-            false           // 自動開始しない
+            dma_channel[1],
+            &dma_config[1],
+            &dma_hw->ch[dma_channel[0]].al1_read_addr,  // to
+            &transferbuffer,       // from
+            1,    // num of transfers
+            false           // auto start disabled
         );
-        // ブロック終了でIRQライン0を上げるようにDMAに指示
+        // direct the DMA raise IRQ line 0 if transfers finised.
         dma_channel_set_irq0_enabled(dma_channel[1], true);
-        // 割り込みハンドラ登録
+        // register the interrupt handler
         irq_set_exclusive_handler(DMA_IRQ_0, dma_irq_handler);
         irq_set_enabled(DMA_IRQ_0, true);
 
-        /* 矩形転送DMA 裏画面(1回1ライン) [1] */
+        /* rectangle transfer DMA back screen (1 line per run)) [1] */
         dma_config[2] = dma_channel_get_default_config(dma_channel[2]);
         channel_config_set_transfer_data_size(&dma_config[2], DMA_SIZE_16);
         channel_config_set_read_increment(&dma_config[2], true);
@@ -395,15 +397,15 @@ class NT35510LCD {
         channel_config_set_chain_to(&dma_config[2], dma_channel[4]);
 #endif
         dma_channel_configure(
-            dma_channel[2],  // チャネル番号
-            &dma_config[2],         // 設定
-            (void *)nullptr,  // 転送先
-            (void *)nullptr,       // 転送元
-            1,    // 転送回数
-            false           // 自動開始しない
+            dma_channel[2],
+            &dma_config[2],
+            (void *)nullptr,  // to (set at the time of use)
+            (void *)nullptr,       // from (set at the time of use)
+            1,    // num of transfers
+            false           // not started now
         );
 
-        /* 矩形転送DMA 表画面(1回1ライン) [1] */
+        /* rectangle transfer DMA front screen (1 line per run) [1] */
         dma_config[4] = dma_channel_get_default_config(dma_channel[4]);
         channel_config_set_transfer_data_size(&dma_config[4], DMA_SIZE_16);
         channel_config_set_read_increment(&dma_config[4], true);
@@ -411,12 +413,12 @@ class NT35510LCD {
         channel_config_set_dreq(&dma_config[4], DREQ_FORCE);
         dma_channel_set_config(dma_channel[4], &dma_config[4], false);
         dma_channel_configure(
-            dma_channel[4],  // チャネル番号
-            &dma_config[4],         // 設定
-            (void *)nullptr,  // 転送先
-            (void *)nullptr,       // 転送元
-            1,    // 転送回数
-            false           // 自動開始しない
+            dma_channel[4],
+            &dma_config[4],
+            (void *)nullptr,  // to
+            (void *)nullptr,       // from
+            1,
+            false
         );
 #if 0
         dma_irqn_set_channel_enabled(DMA_IRQ_INDEX_1, dma_channel[4], true);
@@ -426,7 +428,7 @@ class NT35510LCD {
         irq_set_exclusive_handler(DMA_IRQ_1, bitblt_irq_handler1);
         irq_set_enabled(DMA_IRQ_1, true);
 
-        /* 矩形転送DMA 裏画面(1回1ライン) [2] */
+        /* rectangle transfer DMA back screen (1 line per run)) [2] */
         dma_config[5] = dma_channel_get_default_config(dma_channel[5]);
         channel_config_set_transfer_data_size(&dma_config[5], DMA_SIZE_16);
         channel_config_set_read_increment(&dma_config[5], true);
@@ -437,13 +439,13 @@ class NT35510LCD {
         dma_channel_configure(
             dma_channel[5],
             &dma_config[5],
-            (void *)nullptr,  // 転送先
-            (void *)nullptr,       // 転送元
-            1,    // 転送回数
+            (void *)nullptr,  // to
+            (void *)nullptr,       // from
+            1,
             false
         );
 
-        /* 矩形転送DMA 表画面(1回1ライン) [2] */
+        /* rectangle transfer DMA front screen (1 line per run) [2] */
         dma_config[6] = dma_channel_get_default_config(dma_channel[6]);
         channel_config_set_transfer_data_size(&dma_config[6], DMA_SIZE_16);
         channel_config_set_read_increment(&dma_config[6], true);
@@ -453,9 +455,9 @@ class NT35510LCD {
         dma_channel_configure(
             dma_channel[6],
             &dma_config[6],
-            (void *)nullptr,  // 転送先
-            (void *)nullptr,       // 転送元
-            1,    // 転送回数
+            (void *)nullptr,  // to
+            (void *)nullptr,       // from
+            1,
             false
         );
 #if 0
@@ -468,19 +470,19 @@ class NT35510LCD {
 
 
 #if 1
-        /* データ転送DMA (to frame buffer) */
+        /* data transfer DMA (to frame buffer) */
         dma_config[3] = dma_channel_get_default_config(dma_channel[3]);
         channel_config_set_transfer_data_size(&dma_config[3], DMA_SIZE_32);
         channel_config_set_read_increment(&dma_config[3], true);
         channel_config_set_write_increment(&dma_config[3], true);
         dma_channel_set_config(dma_channel[3], &dma_config[3], false);
         dma_channel_configure(
-            dma_channel[3],  // チャネル番号
-            &dma_config[3],         // 設定
-            (void *)drawingbuffer,  // 転送先
-            (void *)transferbuffer,       // 転送元
-            SCREEN_SIZE / 2,    // 転送回数
-            false           // 自動開始しない
+            dma_channel[3],
+            &dma_config[3],
+            (void *)drawingbuffer,  // to
+            (void *)transferbuffer,       // from
+            SCREEN_SIZE / 2,    // num of transfers
+            false           // not started now
         );
 #endif
     }
