@@ -59,6 +59,10 @@ typedef volatile struct _bitblt_dma {
 volatile BITBLT_DMA bitblt_dma, bitblt_dma2, bitblt_dma3, bitblt_dma4;
 semaphore_t bitblt_sem;
 
+uint16_t scroll_x = 0;
+uint16_t scroll_y = 0;
+uint16_t scroll_x_new = 0;
+uint16_t scroll_y_new = 0;
 class NT35510LCD {
     public:
     PIO pio = pio0;
@@ -291,6 +295,86 @@ class NT35510LCD {
         }
     }
 
+    void scroll(uint16_t x, uint16_t y) {
+        scroll_x_new = x;
+        scroll_y_new = y;
+    }
+    static void frame_buffer_transfer_irq_handler(void) {
+        static uint16_t state = 0;
+        static uint16_t phase = 0;
+        static uint16_t line_start = 0;
+        static uint16_t line_cnt = 0;
+        static uint16_t cnt_max = 0;
+
+        clear_dma_irq(dma_channel[0]);
+retry:
+        switch(state) {
+            case 0:
+                switch(phase) {
+                    case 0:
+                        scroll_x = 800 - (scroll_x_new % 800);
+                        scroll_y = scroll_y_new % 480;
+                        line_start = 480 - scroll_y;
+                        line_cnt = 0;
+                        cnt_max = scroll_y;
+                        if(cnt_max == 0) {
+                            state = 1;
+                            phase = 0;
+                            goto retry;
+                        }
+                        phase = 1;
+                        /* fall through */
+                    case 1:
+                        dma_channel_set_read_addr(dma_channel[0], (uint16_t *)&transferbuffer[scroll_x + 800 * (line_start + line_cnt)], false);
+                        dma_channel_set_trans_count(dma_channel[0], 800 - scroll_x, false);
+                        if(1) {
+                            dma_channel_start(dma_channel[0]);
+                        }
+                        phase = 2;
+                        break;
+                    case 2:
+                        dma_channel_set_read_addr(dma_channel[0], (uint16_t *)&transferbuffer[800 * (line_start + line_cnt)], false);
+                        dma_channel_set_trans_count(dma_channel[0], scroll_x, false);
+                        dma_channel_start(dma_channel[0]);
+                        if (++line_cnt >= cnt_max) {
+                            state = 1;
+                            phase = 0;
+                            break;
+                        }
+                        phase = 1;
+                        break;
+                }
+                break;
+            case 1:
+                switch(phase) {
+                    case 0:
+                        line_start = 0;
+                        line_cnt = 0;
+                        cnt_max = 480 - scroll_y;
+                        phase = 1;
+                        /* fall through */
+                    case 1:
+                        dma_channel_set_read_addr(dma_channel[0], (uint16_t *)&transferbuffer[scroll_x + 800 * (line_start + line_cnt)], false);
+                        dma_channel_set_trans_count(dma_channel[0], 800 - scroll_x, false);
+                        dma_channel_start(dma_channel[0]);
+                        phase = 2;
+                        break;
+                    case 2:
+                        dma_channel_set_read_addr(dma_channel[0], (uint16_t *)&transferbuffer[800 * (line_start + line_cnt)], false);
+                        dma_channel_set_trans_count(dma_channel[0], scroll_x, false);
+                        dma_channel_start(dma_channel[0]);
+                        if(++line_cnt >= cnt_max) {
+                            state = 0;
+                            phase = 0;
+                            break;
+                        }
+                        phase = 1;
+                        break;
+                }
+                break;
+        }
+    }
+
     static void dma_irq_handler(void) {
         clear_dma_irq(dma_channel[1]);   // clear irq.
 
@@ -351,7 +435,7 @@ class NT35510LCD {
         uint dreq = pio_get_dreq(pio, sm, true);
         channel_config_set_dreq(&dma_config[0], dreq);
         dma_channel_set_config(dma_channel[0], &dma_config[0], false);
-        channel_config_set_chain_to(&dma_config[0], dma_channel[1]);
+        //channel_config_set_chain_to(&dma_config[0], dma_channel[1]);
         dma_channel_configure(
             dma_channel[0],  // ch num.
             &dma_config[0],         // configuration
@@ -364,7 +448,13 @@ class NT35510LCD {
 #endif
             false           // not automatically started
         );
+        // direct the DMA raise IRQ line 0 if transfers finised.
+        dma_channel_set_irq0_enabled(dma_channel[0], true);
+        // register the interrupt handler
+        irq_set_exclusive_handler(DMA_IRQ_0, frame_buffer_transfer_irq_handler);
+        irq_set_enabled(DMA_IRQ_0, true);
 
+#if 0
         /* re-set source DMA (when finished) */
         dma_config[1] = dma_channel_get_default_config(dma_channel[1]);
         channel_config_set_transfer_data_size(&dma_config[1], DMA_SIZE_32);
@@ -385,6 +475,7 @@ class NT35510LCD {
         // register the interrupt handler
         irq_set_exclusive_handler(DMA_IRQ_0, dma_irq_handler);
         irq_set_enabled(DMA_IRQ_0, true);
+#endif
 
         /* rectangle transfer DMA back screen (1 line per run)) [1] */
         dma_config[2] = dma_channel_get_default_config(dma_channel[2]);
